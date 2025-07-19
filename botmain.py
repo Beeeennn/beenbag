@@ -9,11 +9,12 @@ import json
 # Configure logging for visibility
 logging.basicConfig(level=logging.INFO)
 
-# Read token and port from environment variables
+# Read token, port, and admin secret from environment variables
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN environment variable not set")
 PORT = int(os.getenv("PORT", 8080))
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")  # secret for API access
 
 # File for persisting hi counts
 HI_COUNTS_FILE = os.getenv("HI_COUNTS_FILE", "hi_counts.json")
@@ -45,11 +46,8 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    # Ignore self messages
     if message.author == bot.user:
         return
-
-    # Check for 'hi' prefix
     if message.content.lower().startswith("hi"):
         user_id = message.author.id
         hi_counts[user_id] = hi_counts.get(user_id, 0) + 1
@@ -58,8 +56,6 @@ async def on_message(message):
         await message.channel.send(
             f"Hi, {message.author.mention}! You've said hi {count} time{'s' if count != 1 else ''}."
         )
-
-    # Allow commands to work
     await bot.process_commands(message)
 
 @bot.command(name="hi_leaderboard")
@@ -75,13 +71,29 @@ async def hi_leaderboard(ctx):
         lines.append(f"{name}: {count}")
     await ctx.send("**Hi Leaderboard**\n" + "\n".join(lines))
 
-# Simple HTTP server to keep alive on hosts
+# HTTP server to keep alive and provide API for external scripts
 async def handle_ping(request):
     return web.Response(text="pong")
+
+async def handle_give_his(request):
+    # Secure endpoint: require ADMIN_TOKEN header 'Authorization: Bearer <token>'
+    auth = request.headers.get('Authorization', '')
+    if not ADMIN_TOKEN or auth != f"Bearer {ADMIN_TOKEN}":
+        return web.Response(status=401, text="Unauthorized")
+    try:
+        user_id = int(request.query.get('user_id', ''))
+        amount = int(request.query.get('amount', ''))
+    except (TypeError, ValueError):
+        return web.Response(status=400, text="Invalid parameters")
+    # Update and persist
+    hi_counts[user_id] = hi_counts.get(user_id, 0) + amount
+    save_hi_counts()
+    return web.json_response({"user_id": user_id, "new_count": hi_counts[user_id]})
 
 async def start_http_server():
     app = web.Application()
     app.router.add_get('/', handle_ping)
+    app.router.add_post('/give_his', handle_give_his)
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', PORT).start()
