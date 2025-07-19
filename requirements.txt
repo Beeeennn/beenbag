@@ -1,1 +1,2 @@
--e "discord.py\naiohttp" 
+discord.py
+aiohttp
