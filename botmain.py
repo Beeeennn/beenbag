@@ -408,10 +408,16 @@ async def farm(ctx):
         total = row["wheat"]
 
     # Prepare the final result text
-    result = (
-        f"{ctx.author.mention} farmed with a **{best_tier.title()} Pickaxe** and found "
-        f"🌾 **{drop} Wheat**! You now have **{total} Wheat**."
-    )
+    if best_tier:
+        result = (
+            f"{ctx.author.mention} farmed with a **{best_tier.title()} Hoe** and found "
+            f"🌾 **{drop} Wheat**! You now have **{total} Wheat**."
+        )
+    else:
+        result = (
+            f"{ctx.author.mention} farmed by **hand** and found "
+            f"🌾 **{drop} Wheat**! You now have **{total} Wheat**."
+        )
 
     # --- 2) Play the animation ---
     frames = [
