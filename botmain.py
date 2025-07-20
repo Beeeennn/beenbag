@@ -51,16 +51,160 @@ async def handle_ping(request):
     return web.Response(text="pong")
 
 
+CRAFT_RECIPES = {
+    # tool        tier      wood   ore_count  ore_column    uses
+    ("pickaxe",   "wood"):    (1,    3,      "wood", 10),
+    ("pickaxe",   "stone"):   (1,    3,      "cobblestone", 10),
+    ("pickaxe",   "iron"):    (1,    3,      "iron",        10),
+    ("pickaxe",   "gold"):    (1,    3,      "gold",        10),
+    ("pickaxe",   "diamond"): (1,    3,      "diamond",     10),
 
+    ("hoe",       "wood"):    (1,    2,      "wood", 10),
+    ("hoe",       "stone"):   (1,    2,      "cobblestone", 10),
+    ("hoe",       "iron"):    (1,    2,      "iron",        10),
+    ("hoe",       "gold"):    (1,    2,      "gold",        10),
+    ("hoe",       "diamond"): (1,    2,      "diamond",     10),
 
+    ("fishing_rod", "wood"):  (3,    0,      None,          10),
+    ("fishing_rod", "stone"): (3,    0,      None,          10),
+    ("fishing_rod", "iron"):  (3,    0,      None,          10),
+    ("fishing_rod", "gold"):  (3,    0,      None,          10),
+    ("fishing_rod", "diamond"):(3,   0,      None,          10),
 
+    ("sword",     "wood"):    (1,    2,      "wood", 3),
+    ("sword",     "stone"):   (1,    2,      "cobblestone", 3),
+    ("sword",     "iron"):    (1,    2,      "iron",        3),
+    ("sword",     "gold"):    (1,    2,      "gold",        3),
+    ("sword",     "diamond"): (1,    2,      "diamond",     3),
+}
 
+@bot.command(name="craft")
+async def craft(ctx, *args):
+    """
+    Usage:
+      !craft <tool>              → fishing rod only
+      !craft <tool> <tier>       → other tools
+    Examples:
+      !craft fishing rod
+      !craft pickaxe iron
+    """
+    if not args:
+        return await ctx.send("❌ Usage: `!craft <tool> [tier]`")
 
+    # Build tool name from all but last arg; tier is last arg if 2+ args
+    if len(args) == 1:
+        tool_raw = args[0]
+        tier = None
+    else:
+        tool_raw = "_".join(args[:-1])
+        tier = args[-1].lower()
+
+    tool = tool_raw.replace(" ", "_").lower()
+
+    # If it’s the fishing rod, force tier to “wood”
+    if tool in ("fishing_rod", "fishingrod", "fishing"):
+        tier = "wood"
+
+    if tier is None:
+        return await ctx.send("❌ You must specify a tier for that tool.")
+
+    key = (tool, tier)
+    if key not in CRAFT_RECIPES:
+        return await ctx.send("❌ Invalid recipe. Try `!craft pickaxe iron` or `!craft fishing rod`.")
+
+    wood_cost, ore_cost, ore_col, uses = CRAFT_RECIPES[key]
+    user_id = ctx.author.id
+
+    async with db_pool.acquire() as conn:
+        # Ensure player row
+        await conn.execute(
+            "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
+            user_id
+        )
+        # Fetch their resources
+        query = f"SELECT wood, {ore_col or '0'} as ore_have FROM players WHERE user_id = $1;"
+        row = await conn.fetchrow(query, user_id)
+        wood_have, ore_have = row["wood"], row["ore_have"]
+
+        if wood_have < wood_cost or ore_have < ore_cost:
+            need = [f"**{wood_cost} wood**"]
+            if ore_col:
+                need.append(f"**{ore_cost} {ore_col}**")
+            return await ctx.send(f"❌ You need { ' and '.join(need) } to craft that.")
+
+        # Deduct resources
+        updates = ["wood = wood - $1"]
+        params = [wood_cost]
+        if ore_col:
+            updates.append(f"{ore_col} = {ore_col} - $2")
+            params.append(ore_cost)
+        params.append(user_id)
+        await conn.execute(
+            f"UPDATE players SET {', '.join(updates)} WHERE user_id = ${len(params)};",
+            *params
+        )
+
+        # Give the tool
+        await conn.execute("""
+            INSERT INTO tools (user_id, tool_name, tier, uses_left)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (user_id, tool_name, tier) DO UPDATE
+              SET uses_left = tools.uses_left + EXCLUDED.uses_left;
+        """, user_id, tool, tier, uses)
+
+    await ctx.send(f"🔨 You crafted a **{tier.title()} {tool.replace('_',' ').title()}** with {uses} uses!")
+
+@craft.error
+async def craft_error(ctx, error):
+    if isinstance(error, commands.MissingRequiredArgument):
+        return await ctx.send("❌ Usage: `!craft <tool> [tier]`")
+    raise error
 
 @bot.command(name="chop")
-@commands.cooldown(1, 240, commands.BucketType.user)  # 1 use per 60s per user
+@commands.cooldown(1, 240, commands.BucketType.user)  # 1 use per 240s per user
 async def chop(ctx):
     """Gain 1 wood every 60s."""
+    user_id = ctx.author.id
+
+    async with db_pool.acquire() as conn:
+        # ensure the player record exists
+        await conn.execute(
+            "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
+            user_id
+        )
+
+        # grant 1 wood
+        await conn.execute(
+            "UPDATE players SET wood = wood + 1 WHERE user_id = $1;",
+            user_id
+        )
+
+        # fetch the updated wood count
+        row = await conn.fetchrow(
+            "SELECT wood FROM players WHERE user_id = $1;",
+            user_id
+        )
+
+    wood = row["wood"]
+    await ctx.send(
+        f"{ctx.author.mention} swung their axe and chopped 🌳 **1 wood**! "
+        f"You now have **{wood}** wood."
+    )
+@chop.error
+async def chop_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown):
+        retry = int(error.retry_after)  # seconds remaining
+        await ctx.send(
+            f"This command is on cooldown. Try again in {retry} second{'s' if retry != 1 else ''}."
+        )
+        return
+    # For any other errors, let them bubble up
+    raise error
+
+@bot.command(name="mine")
+@commands.cooldown(1, 240, commands.BucketType.user)  # 1 use per 240s per user
+async def mine(ctx):
+
     user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
