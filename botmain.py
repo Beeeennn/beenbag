@@ -212,7 +212,7 @@ async def on_message(message):
 
             # build and send the embed
             embed = discord.Embed(
-                title=f"🏆 {message.author.display_name} caught a {rarity} {mob_name}!",
+                title=f"🏆 {message.author.display_name} caught a {RARITIES[rarity]["name"]} {mob_name}!",
                 description=f"{note}",
                 color=color
             )
