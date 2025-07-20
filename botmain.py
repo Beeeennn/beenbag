@@ -43,7 +43,7 @@ COLOR_MAP = {
     "red":    discord.Color.red(),
 }
 # List of your mob names, matching files in assets/ (e.g. assets/Zombie.png) -----------------------------------------------------------------------------------------------------------
-MOBS = {"Zombie":{"rarity":2,"hostile":True},
+MOBS = {"Zombie":{"rarity":1,"hostile":True},
         "Enderman":{"rarity":3,"hostile":True},
         "Cow":{"rarity":1,"hostile":False},
         "Chicken":{"rarity":1,"hostile":False},
@@ -121,6 +121,7 @@ async def ensure_player(user_id):
             "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
             user_id
         )
+
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -176,8 +177,30 @@ async def on_message(message):
                 "SELECT barn_size FROM players WHERE user_id = $1",
                 message.author.id
             )
-            if occ < size:
-                # room available → capture
+            if occ >= size:
+                #no room → sacrifice for exp
+                rarity = MOBS[name]["rarity"]
+                rar_info = RARITIES[rarity]
+                reward  = rar_info["emeralds"]
+                await conn.execute(
+                    "UPDATE players SET emeralds = emeralds + $1 WHERE user_id = $2",
+                    reward, message.author.id
+                )
+                
+                note = f"sacrificed for emeralds (barn is full)."
+                
+            elif MOBS[mob_name]["hostile"]:
+                #no room → sacrifice for exp
+                rarity = MOBS[name]["rarity"]
+                rar_info = RARITIES[rarity]
+                reward  = rar_info["emeralds"]
+                await conn.execute(
+                    "UPDATE players SET emeralds = emeralds + $1 WHERE user_id = $2",
+                    reward, message.author.id
+                )
+                
+            else:
+
                 await conn.execute(
                     """
                     INSERT INTO barn (user_id, mob_name, count)
@@ -188,17 +211,6 @@ async def on_message(message):
                     message.author.id, mob_name
                 )
                 note = f"placed in your barn ({occ+1}/{size})."
-            elif MOBS[mob_name]["hostile"]:
-                note = f"sacrificed because it can't be kept."
-            else:
-                # no room → sacrifice for exp
-                # exp_gain = 5  # or whatever you want per mob
-                # await conn.execute(
-                #     "UPDATE players SET exp = exp + $1 WHERE user_id = $2",
-                #     exp_gain, message.author.id
-                # )
-                note = f"sacrificed for exp (barn is full)."
-
             # 2) Delete the spawn so no one else can catch it
             await conn.execute(
                 "DELETE FROM active_spawns WHERE spawn_id = $1",
@@ -334,6 +346,58 @@ async def craft_error(ctx, error):
         return await ctx.send("❌ Usage: `!craft <tool> [tier]`")
     raise error
 
+@bot.command(name="sacrifice")
+async def sacrifice(ctx, *, mob_name: str):
+    """
+    Sacrifice one mob from your barn for emeralds based on rarity.
+    Usage: !sacrifice <mob name>
+    """
+    user_id = ctx.author.id
+    key = mob_name.title()
+
+    # validate mob
+    if key not in MOBS:
+        return await ctx.send(f"❌ I don’t recognize **{mob_name}**.")
+
+    rarity = MOBS[key]["rarity"]
+    rar_info = RARITIES[rarity]
+    reward  = rar_info["emeralds"]
+    color   = COLOR_MAP[rar_info["colour"]]
+
+    async with db_pool.acquire() as conn:
+        # check barn
+        have = await conn.fetchval(
+            "SELECT count FROM barn WHERE user_id=$1 AND mob_name=$2",
+            user_id, key
+        ) or 0
+        if have < 1:
+            return await ctx.send(f"❌ You have no **{key}** to sacrifice.")
+        # remove one
+        if have > 1:
+            await conn.execute(
+                "UPDATE barn SET count = count - 1 WHERE user_id=$1 AND mob_name=$2",
+                user_id, key
+            )
+        else:
+            await conn.execute(
+                "DELETE FROM barn WHERE user_id=$1 AND mob_name=$2",
+                user_id, key
+            )
+        # grant emeralds
+        await conn.execute(
+            "UPDATE players SET emeralds = emeralds + $1 WHERE user_id = $2",
+            reward, user_id
+        )
+
+    # send embed
+    embed = discord.Embed(
+        title=f"🗡️ {ctx.author.display_name} sacrificed a {key}",
+        description=f"You gained 💠 **{reward} Emerald{'s' if reward!=1 else ''}**!",
+        color=color
+    )
+    embed.add_field(name="Rarity", value=rar_info["name"].title(), inline=True)
+    await ctx.send(embed=embed)
+    
 @bot.command(name="chop")
 @commands.cooldown(1, 120, commands.BucketType.user)  # 1 use per 240s per user
 async def chop(ctx):
