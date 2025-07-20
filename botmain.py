@@ -354,7 +354,7 @@ WHEAT_DROP ={None: 2,
 @bot.command(name="farm")
 @commands.cooldown(1, 120, commands.BucketType.user)
 async def farm(ctx):
-    """Mine for cobblestone or ores; better pickaxes yield rarer drops."""
+    """Farm for wheat, better hoe means more wheat."""
     user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
@@ -369,7 +369,7 @@ async def farm(ctx):
             """,
             user_id
         )
-        # 2) Determine your highest tier pickaxe
+        # 2) Determine your highest tier hoe
         owned_tiers = {r["tier"] for r in pickaxes}
         best_tier = None
         for tier in reversed(TIER_ORDER):
@@ -377,14 +377,14 @@ async def farm(ctx):
                 best_tier = tier
                 break
 
-        # 3) Consume 1 use on that pickaxe
+        # 3) Consume 1 use on that hoe
         if best_tier:
             await conn.execute(
                 """
                 UPDATE tools
                 SET uses_left = uses_left - 1
                 WHERE user_id = $1
-                AND tool_name = 'pickaxe'
+                AND tool_name = 'hoe'
                 AND tier = $2
                 AND uses_left > 0
                 """,
