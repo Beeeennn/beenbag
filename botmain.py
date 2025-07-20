@@ -431,11 +431,11 @@ async def farm(ctx):
     await asyncio.sleep(0.5)
     await msg.edit(content=result)
 
-@mine.error
+@farm.error
 async def mine_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
         retry = int(error.retry_after)
-        await ctx.send(f"You’re still mining! Try again in {retry}s.")
+        await ctx.send(f"You’re still farming! Try again in {retry}s.")
         return
     raise error
 @bot.command(name="inv", aliases=["inventory"])
