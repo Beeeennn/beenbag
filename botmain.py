@@ -28,6 +28,47 @@ if not DATABASE_URL:
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+RARITIES ={
+    1:{"colour":"white","name":"common","wheat":5,"emeralds":1},
+    1:{"colour":"green","name":"uncommon","wheat":10,"emeralds":2},
+    1:{"colour":"blue","name":"rare","wheat":15,"emeralds":3},
+    1:{"colour":"purple","name":"epic","wheat":25,"emeralds":5},
+    1:{"colour":"red","name":"legendary","wheat":40,"emeralds":10}
+}
+COLOR_MAP = {
+    "white":  discord.Color.light_grey(),
+    "green":  discord.Color.green(),
+    "blue":   discord.Color.blue(),
+    "purple": discord.Color.purple(),
+    "red":    discord.Color.red(),
+}
+# List of your mob names, matching files in assets/ (e.g. assets/Zombie.png) -----------------------------------------------------------------------------------------------------------
+MOBS = {"Zombie":{"rarity":2,"hostile":True},
+        "Enderman":{"rarity":3,"hostile":True},
+        "Cow":{"rarity":1,"hostile":False},
+        "Chicken":{"rarity":1,"hostile":False},
+        "Armadillo":{"rarity":2,"hostile":False},
+        "Cod":{"rarity":1,"hostile":True},
+        "Axolotl":{"rarity":2,"hostile":False},
+        "Dolphin":{"rarity":2,"hostile":False},
+        "Camel":{"rarity":2,"hostile":False},
+        "Donkey":{"rarity":1,"hostile":False},
+        "Frog":{"rarity":3,"hostile":False},
+        "Fox":{"rarity":2,"hostile":False},
+        "Snow Fox":{"rarity":4,"hostile":False},
+        "Glow Squid":{"rarity":2,"hostile":True},
+        "Goat":{"rarity":3,"hostile":False},
+        "Hoglin":{"rarity":4,"hostile":True},
+        "Horse":{"rarity":1,"hostile":False},
+        "Llama":{"rarity":2,"hostile":False},
+        "Mooshroom":{"rarity":4,"hostile":False},
+        "Ocelot":{"rarity":3,"hostile":False},
+        "Panda":{"rarity":3,"hostile":False},
+        "Brown Panda":{"rarity":5,"hostile":False},
+        "Parrot":{"rarity":2,"hostile":False},
+        "Pig":{"rarity":1,"hostile":False},
+        "Sheep":{"rarity":1,"hostile":False}        
+        }
 
 # We'll hold an asyncpg pool here
 db_pool: asyncpg.Pool = None
@@ -147,6 +188,8 @@ async def on_message(message):
                     message.author.id, mob_name
                 )
                 note = f"placed in your barn ({occ+1}/{size})."
+            if MOBS[mob_name]["hostile"]:
+                note = f"sacrificed because it can't be kept."
             else:
                 # no room → sacrifice for exp
                 # exp_gain = 5  # or whatever you want per mob
@@ -162,10 +205,23 @@ async def on_message(message):
                 spawn_id
             )
 
-            # 3) Announce it
-            await message.channel.send(
-                f"{message.author.mention} caught the **{mob_name}** and {note}"
+            # look up rarity info
+            rarity = MOBS[mob_name]["rarity"]
+            rar_info = RARITIES[rarity]
+            color    = COLOR_MAP[rar_info["colour"]]
+
+            # build and send the embed
+            embed = discord.Embed(
+                title=f"🏆 {message.author.display_name} caught a {rarity} {mob_name}!",
+                description=f"{note}",
+                color=color
             )
+            embed.add_field(
+                name="Rarity",
+                value=rar_info["name"].title(),
+                inline=True
+            )
+            await message.channel.send(embed=embed)
             # skip further processing (so they don’t also run a command)
             return
 
@@ -620,67 +676,53 @@ async def inv(ctx):
 
 @bot.command(name="barn")
 async def barn(ctx):
-    """Show your barn: mobs inside, current size, and next upgrade cost."""
+    """Show your barn: mobs broken out by rarity, with colored embed."""
     user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
-        # 1) Get current barn size
-        row = await conn.fetchrow(
-            "SELECT barn_size FROM players WHERE user_id = $1",
+        # fetch barn contents
+        rows = await conn.fetch(
+            "SELECT mob_name, count FROM barn WHERE user_id=$1 AND count>0",
             user_id
         )
-        barn_size = row["barn_size"] if row else 5
-
-        # 2) Get how many times they’ve upgraded
-        up = await conn.fetchrow(
-            "SELECT times_upgraded FROM barn_upgrades WHERE user_id = $1",
+        # fetch current size & next upgrade (if you want to include it)
+        size = await conn.fetchval(
+            "SELECT barn_size FROM players WHERE user_id=$1",
             user_id
-        )
-        times_upgraded = up["times_upgraded"] if up else 0
+        ) or 5
 
-        # 3) Compute next upgrade cost (wood)
-        next_cost = (times_upgraded + 1)*3
+    if not rows:
+        return await ctx.send("Your barn is empty!")
 
-        # 4) Fetch all mobs in the barn
-        mobs = await conn.fetch(
-            "SELECT mob_name, count FROM barn WHERE user_id = $1 AND count > 0",
-            user_id
-        )
+    # organize by rarity
+    by_rarity = {}
+    for r in range(1, 6):
+        by_rarity[r] = []
 
-    # Build the embed
+    for record in rows:
+        name  = record["mob_name"]
+        cnt   = record["count"]
+        rar   = MOBS[name]["rarity"]
+        by_rarity[rar].append(f"• **{name}** × {cnt}")
+
+    # pick the highest rarity present for the embed color
+    highest = max((r for r, lst in by_rarity.items() if lst), default=1)
+    embed_color = COLOR_MAP[ RARITIES[highest]["colour"] ]
+
     embed = discord.Embed(
-        title=f"{ctx.author.display_name}'s Barn",
-        color=discord.Color.green()
+        title=f"{ctx.author.display_name}'s Barn ({size} slots)",
+        color=embed_color
     )
-    if ctx.author.avatar:
-        embed.set_thumbnail(url=ctx.author.avatar.url)
+    embed.set_footer(text="Use !upbarn to expand your barn.")
 
-    # Barn size & next upgrade
-    embed.add_field(
-        name="🏠 Barn Size",
-        value=f"{barn_size} slots",
-        inline=True
-    )
-    embed.add_field(
-        name="🔨 Next Upgrade Cost",
-        value=f"{next_cost} wood",
-        inline=True
-    )
-
-    # Mobs list
-    if mobs:
-        lines = [f"• **{r['mob_name']}** × {r['count']}" for r in mobs]
-        embed.add_field(
-            name="Mobs Inside",
-            value="\n".join(lines),
-            inline=False
-        )
-    else:
-        embed.add_field(
-            name="Mobs Inside",
-            value="_(empty)_",
-            inline=False
-        )
+    # Add a field per rarity that actually has mobs
+    for rar, lines in by_rarity.items():
+        if not lines:
+            continue
+        info = RARITIES[rar]
+        # e.g. “Common (1)”
+        field_name = f"{info['name'].title()} [{rar}]"
+        embed.add_field(name=field_name, value="\n".join(lines), inline=False)
 
     await ctx.send(embed=embed)
     
@@ -757,8 +799,7 @@ async def upbarn(ctx):
         f"{ctx.author.mention} upgraded their barn from **{current_size}** to **{new_size}** slots "
         f"for 🌳 **{next_cost} wood**! You now have **{new_wood} wood**."
     )
-# List of your mob names, matching files in assets/ (e.g. assets/Zombie.png) -----------------------------------------------------------------------------------------------------------
-MOBS = ["Zombie","Enderman","Cow","Chicken"]
+
 # Spawn channels
 SPAWN_CHANNEL_IDS = [1396534538498343002, 1396534603854123088,1396534658656763974,1396534732682035250]
 
@@ -771,13 +812,21 @@ def pixelate(img: Image.Image, size: int) -> Image.Image:
 
 async def spawn_mob_loop():
     await bot.wait_until_ready()
+        # before your loop, compute these once:
+    mob_names = list(MOBS.keys())
+    rarities = [MOBS[name]["rarity"] for name in mob_names]
+    max_r = max(rarities)
+
+    # weight = (max_r + 1) – rarity  → commons get highest weight
+    weights = [(2**(max_r + 1)) - r for r in rarities]
+    
     while True:
         # wait 4–20 minutes
-        await asyncio.sleep(random.randint(1*60, 2*60))
+        await asyncio.sleep(random.randint(4*60, 6*60))
 
         # pick channel & mob
         chan = bot.get_channel(random.choice(SPAWN_CHANNEL_IDS))
-        mob = random.choice(MOBS)
+        mob = mob = random.choices(mob_names, weights=weights, k=1)[0]
         try:
             src = Image.open(f"assets/mobs/{mob}.png").convert("RGBA")
         except FileNotFoundError:
