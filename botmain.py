@@ -30,10 +30,10 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 RARITIES ={
     1:{"colour":"white","name":"common","wheat":5,"emeralds":1},
-    1:{"colour":"green","name":"uncommon","wheat":10,"emeralds":2},
-    1:{"colour":"blue","name":"rare","wheat":15,"emeralds":3},
-    1:{"colour":"purple","name":"epic","wheat":25,"emeralds":5},
-    1:{"colour":"red","name":"legendary","wheat":40,"emeralds":10}
+    2:{"colour":"green","name":"uncommon","wheat":10,"emeralds":2},
+    3:{"colour":"blue","name":"rare","wheat":15,"emeralds":3},
+    4:{"colour":"purple","name":"epic","wheat":25,"emeralds":5},
+    5:{"colour":"red","name":"legendary","wheat":40,"emeralds":10}
 }
 COLOR_MAP = {
     "white":  discord.Color.light_grey(),
@@ -810,6 +810,38 @@ def pixelate(img: Image.Image, size: int) -> Image.Image:
     # blow back up to original dims
     return small.resize(img.size, Image.NEAREST)
 
+async def watch_spawn_expiry(spawn_id, channel_id, message_id, mob_name, expires_at):
+    # Sleep until the exact expiry time
+    now = datetime.utcnow()
+    delay = (expires_at - now).total_seconds()
+    if delay > 0:
+        await asyncio.sleep(delay)
+
+    # After sleeping, check if it's still uncaught
+    async with db_pool.acquire() as conn:
+        still_there = await conn.fetchval(
+            "SELECT 1 FROM active_spawns WHERE spawn_id = $1", spawn_id
+        )
+        if not still_there:
+            return  # someone caught it already
+
+        # Remove the DB entry
+        await conn.execute(
+            "DELETE FROM active_spawns WHERE spawn_id = $1", spawn_id
+        )
+
+    # Try to delete the original image message
+    channel = bot.get_channel(channel_id)
+    if channel:
+        try:
+            orig = await channel.fetch_message(message_id)
+            await orig.delete()
+        except discord.NotFound:
+            pass
+
+        # Announce the escape
+        await channel.send(f"😢 The wild **{mob_name}** ran away…")
+
 async def spawn_mob_loop():
     await bot.wait_until_ready()
         # before your loop, compute these once:
@@ -838,25 +870,33 @@ async def spawn_mob_loop():
         b = io.BytesIO()
         pixelate(src, frame_sizes[0]).save(b, format="PNG")
         b.seek(0)
-        msg = await chan.send(file=discord.File(b, f"{mob}.png"))
+        msg = await chan.send("?", file=discord.File(b, f"{mob}.png"))
         expires = datetime.utcnow() + timedelta(minutes=5)  # give players 5m to catch
         async with db_pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO active_spawns
-                (channel_id, mob_name, message_id, revealed, spawn_time, expires_at)
-                VALUES ($1,$2,$3,0,$4,$5)
-                """,
-                chan.id, mob, msg.id, datetime.utcnow(), expires
-            )
-
-        # step through each larger frame
+            record = await conn.fetchrow(
+            """
+            INSERT INTO active_spawns
+            (channel_id, mob_name, message_id, revealed, spawn_time, expires_at)
+            VALUES ($1,$2,$3,0,$4,$5)
+            RETURNING spawn_id
+            """,
+            chan.id, mob, msg.id, datetime.utcnow(), expires
+        )
+        spawn_id = record["spawn_id"]
+        bot.loop.create_task(
+            watch_spawn_expiry(spawn_id=spawn_id,  # you'll fetch this below
+                            channel_id=chan.id,
+                            message_id=msg.id,
+                            mob_name=mob,
+                            expires_at=expires)
+        )
+                # step through each larger frame
         for size in frame_sizes[1:]:
             await asyncio.sleep(10)  # pause between frames
             b = io.BytesIO()
             pixelate(src, size).save(b, format="PNG")
             b.seek(0)
-            await msg.edit(content=None, attachments=[discord.File(b, f"{mob}.png")])
+            await msg.edit(content="?", attachments=[discord.File(b, f"{mob}.png")])
 
 async def start_http_server():
     app = web.Application()
