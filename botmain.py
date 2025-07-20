@@ -54,6 +54,13 @@ async def handle_ping(request):
     return web.Response(text="pong")
 
 @bot.event
+async def on_ready():
+    logging.info(f"Bot ready as {bot.user}")
+
+    # Only schedule it once
+    if not hasattr(bot, "_spawn_task"):
+        bot._spawn_task = bot.loop.create_task(spawn_mob_loop())
+@bot.event
 async def on_command_error(ctx, error):
     # Ignore “unknown command” errors
     if isinstance(error, commands.CommandNotFound):
