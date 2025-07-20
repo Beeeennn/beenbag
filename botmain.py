@@ -182,7 +182,7 @@ async def on_message(message):
                     reward, message.author.id
                 )
                 
-                note = f"sacrificed for emeralds (barn is full)."
+                note = f"sacrificed for {reward} emeralds (barn is full)."
                 
             elif MOBS[mob_name]["hostile"]:
                 #no room → sacrifice for exp
@@ -193,6 +193,7 @@ async def on_message(message):
                     "UPDATE accountinfo SET emeralds = emeralds + $1 WHERE discord_id = $2",
                     reward, message.author.id
                 )
+                note = f"this mob is not catchable so it was sacrificed for {reward} emeralds"
                 
             else:
 
@@ -751,7 +752,7 @@ async def barn(ctx):
         ) or 5
 
     if not rows:
-        return await ctx.send("Your barn is empty!")
+        return await ctx.send("Your barn is empty, go catch mobs in the plains!")
 
     # organize by rarity
     by_rarity = {}
