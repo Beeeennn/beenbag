@@ -29,11 +29,11 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 RARITIES ={
-    1:{"colour":"white","name":"common","wheat":5,"emeralds":1},
-    2:{"colour":"green","name":"uncommon","wheat":10,"emeralds":2},
-    3:{"colour":"blue","name":"rare","wheat":15,"emeralds":3},
-    4:{"colour":"purple","name":"epic","wheat":25,"emeralds":5},
-    5:{"colour":"red","name":"legendary","wheat":40,"emeralds":10}
+    1:{"colour":"white","name":"common","wheat":5,"emeralds":1,"stay":180},
+    2:{"colour":"green","name":"uncommon","wheat":10,"emeralds":2,"stay":160},
+    3:{"colour":"blue","name":"rare","wheat":15,"emeralds":3,"stay":120},
+    4:{"colour":"purple","name":"epic","wheat":25,"emeralds":5,"stay":60},
+    5:{"colour":"red","name":"legendary","wheat":40,"emeralds":10,"stay":40}
 }
 COLOR_MAP = {
     "white":  discord.Color.light_grey(),
@@ -179,7 +179,7 @@ async def on_message(message):
             )
             if occ >= size:
                 #no room → sacrifice for exp
-                rarity = MOBS[name]["rarity"]
+                rarity = MOBS[mob_name]["rarity"]
                 rar_info = RARITIES[rarity]
                 reward  = rar_info["emeralds"]
                 await conn.execute(
@@ -191,7 +191,7 @@ async def on_message(message):
                 
             elif MOBS[mob_name]["hostile"]:
                 #no room → sacrifice for exp
-                rarity = MOBS[name]["rarity"]
+                rarity = MOBS[mob_name]["rarity"]
                 rar_info = RARITIES[rarity]
                 reward  = rar_info["emeralds"]
                 await conn.execute(
@@ -921,7 +921,7 @@ async def spawn_mob_loop():
 
         # pick channel & mob
         chan = bot.get_channel(random.choice(SPAWN_CHANNEL_IDS))
-        mob = mob = random.choices(mob_names, weights=weights, k=1)[0]
+        mob = random.choices(mob_names, weights=weights, k=1)[0]
         try:
             src = Image.open(f"assets/mobs/{mob}.png").convert("RGBA")
         except FileNotFoundError:
@@ -934,7 +934,8 @@ async def spawn_mob_loop():
         pixelate(src, frame_sizes[0]).save(b, format="PNG")
         b.seek(0)
         msg = await chan.send("A mob is appearing, say it's name to catch it", file=discord.File(b, f"spawn.png"))
-        expires = datetime.utcnow() + timedelta(minutes=5)  # give players 5m to catch
+
+        expires = datetime.utcnow() + timedelta(seconds=RARITIES[MOBS[mob]["rarity"]]["stay"])  # give players 5m to catch
         async with db_pool.acquire() as conn:
             record = await conn.fetchrow(
             """
