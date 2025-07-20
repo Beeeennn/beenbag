@@ -853,7 +853,7 @@ async def spawn_mob_loop():
     weights = [(2**(max_r + 1)) - r for r in rarities]
     while True:
         # wait 4–20 minutes
-        await asyncio.sleep(random.randint(4*60, 6*60))
+        await asyncio.sleep(random.randint(1*60, 2*60))
 
         # pick channel & mob
         chan = bot.get_channel(random.choice(SPAWN_CHANNEL_IDS))
