@@ -100,47 +100,55 @@ async def chop_error(ctx, error):
 
 @bot.command(name="inv", aliases=["inventory"])
 async def inv(ctx):
-    """Show user’s inventory."""
+    """Show user’s inventory in a rich embed."""
     user_id = ctx.author.id
 
-    # Fetch all their resources, tools and other stats
+    # 1) Fetch their row
     async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
+        row = await conn.fetchrow("""
             SELECT wood, cobblestone, iron, gold, diamond,
                    wheat
             FROM players
             WHERE user_id = $1
-            """,
-            user_id
-        )
+        """, user_id)
 
-    # If they don’t even have a row yet
     if not row:
         return await ctx.send(f"{ctx.author.mention}, your inventory is empty.")
 
-    # Build a list of non-zero items with emojis
-    items = [
-        ("wood", "🌳"),
-        ("cobblestone", "🪨"),
-        ("iron", "🔩"),
-        ("gold", "🪙"),
-        ("diamond", "💎"),
-        ("wheat", "🌾")
+    # 2) Build the embed
+    embed = discord.Embed(
+        title=f"{ctx.author.display_name}'s Inventory",
+        color=discord.Color.blue()
+    )
+    # add their avatar
+    if ctx.author.avatar:
+        embed.set_thumbnail(url=ctx.author.avatar.url)
+
+    # 3) List of stats you want to show (key, emoji, friendly name)
+    stats = [
+        ("wood",       "🌳", "Wood"),
+        ("cobblestone","🪨", "Cobblestone"),
+        ("iron",       "🔩", "Iron"),
+        ("gold",       "🪙", "Gold"),
+        ("diamond",    "💎", "Diamond"),
+        ("wheat",      "🌾", "Wheat")
     ]
-    lines = []
-    for key, emoji in items:
+
+    # 4) Add a field for each non-zero stat
+    for key, emoji, name in stats:
         val = row[key]
         if val and val > 0:
-            # Pretty-print the field name
-            name = key.replace("_", " ").title()
-            lines.append(f"{emoji} **{name}**: {val}")
+            embed.add_field(
+                name=f"{emoji} {name}",
+                value=str(val),
+                inline=True
+            )
 
-    # Send the message
-    await ctx.send(
-        f"{ctx.author.mention}'s Inventory:\n" +
-        ("\n".join(lines) if lines else "Nothing in your inventory yet.")
-    )
+    # 5) Footer or timestamp
+    embed.set_footer(text="Use !shop to spend your emeralds")
+
+    # 6) Send the embed
+    await ctx.send(embed=embed)
 
 async def start_http_server():
     app = web.Application()
