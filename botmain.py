@@ -113,6 +113,12 @@ async def craft(ctx, *args):
         return await ctx.send("❌ Invalid recipe. Try `!craft pickaxe iron` or `!craft fishing rod`.")
 
     wood_cost, ore_cost, ore_col, uses = CRAFT_RECIPES[key]
+
+    if tier == "wood":
+        wood_cost += ore_cost
+        ore_cost == 0
+        ore_col = None
+        
     user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
