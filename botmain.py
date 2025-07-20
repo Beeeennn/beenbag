@@ -64,7 +64,12 @@ async def on_command_error(ctx, error):
     # For everything else, send an explosion and log
     await ctx.send(":explosion:")
     logging.exception(f"Unhandled command error in {ctx.command}:")
-
+async def ensure_player(user_id):
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
+            user_id
+        )
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -150,11 +155,7 @@ async def craft(ctx, *args):
     user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
-        # Ensure player row
-        await conn.execute(
-            "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
-            user_id
-        )
+        await ensure_player(ctx.author.id)
         # Fetch their resources
         query = f"SELECT wood, {ore_col or '0'} as ore_have FROM players WHERE user_id = $1;"
         row = await conn.fetchrow(query, user_id)
@@ -201,11 +202,7 @@ async def chop(ctx):
     user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
-        # ensure the player record exists
-        await conn.execute(
-            "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
-            user_id
-        )
+        await ensure_player(ctx.author.id)
 
         # grant 1 wood
         await conn.execute(
@@ -254,6 +251,7 @@ async def mine(ctx):
     user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
+        await ensure_player(ctx.author.id)
         # 1) Fetch all usable pickaxes
         pickaxes = await conn.fetch(
             """
@@ -358,6 +356,8 @@ async def farm(ctx):
     user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
+        await ensure_player(ctx.author.id)
+
         # 1) Fetch all usable pickaxes
         pickaxes = await conn.fetch(
             """
@@ -438,7 +438,7 @@ async def farm(ctx):
     await msg.edit(content=result)
 
 @farm.error
-async def mine_error(ctx, error):
+async def farm_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
         retry = int(error.retry_after)
         await ctx.send(f"You’re still farming! Try again in {retry}s.")
@@ -556,7 +556,7 @@ async def barn(ctx):
         times_upgraded = up["times_upgraded"] if up else 0
 
         # 3) Compute next upgrade cost (wood)
-        next_cost = times_upgraded + 1
+        next_cost = (times_upgraded + 1)*3
 
         # 4) Fetch all mobs in the barn
         mobs = await conn.fetch(
@@ -600,6 +600,81 @@ async def barn(ctx):
         )
 
     await ctx.send(embed=embed)
+    
+@bot.command(name="upbarn")
+async def upbarn(ctx):
+    """Upgrades your barn by +1 slot, costing (upgrades + 1) wood."""
+    user_id = ctx.author.id
+
+    async with db_pool.acquire() as conn:
+        # 1) Ensure player row exists
+        await conn.execute(
+            "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
+            user_id
+        )
+        # 2) Ensure barn_upgrades row exists
+        await conn.execute(
+            "INSERT INTO barn_upgrades (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
+            user_id
+        )
+
+        # 3) Get how many times they’ve upgraded
+        up = await conn.fetchrow(
+            "SELECT times_upgraded FROM barn_upgrades WHERE user_id = $1",
+            user_id
+        )
+        times_upgraded = up["times_upgraded"]
+
+        # 4) Compute next upgrade cost
+        next_cost = (times_upgraded + 1) * 3
+
+        # 5) Check they have enough wood
+        pl = await conn.fetchrow(
+            "SELECT wood, barn_size FROM players WHERE user_id = $1",
+            user_id
+        )
+        player_wood = pl["wood"]
+        current_size = pl["barn_size"]
+
+        if player_wood < next_cost:
+            return await ctx.send(
+                f"{ctx.author.mention} you need **{next_cost} wood** to upgrade your barn, "
+                f"but you only have **{player_wood} wood**."
+            )
+
+        # 6) Perform the upgrade
+        await conn.execute(
+            """
+            UPDATE players
+               SET wood = wood - $1,
+                   barn_size = barn_size + 1
+             WHERE user_id = $2
+            """,
+            next_cost, user_id
+        )
+        await conn.execute(
+            """
+            UPDATE barn_upgrades
+               SET times_upgraded = times_upgraded + 1
+             WHERE user_id = $1
+            """,
+            user_id
+        )
+
+        # 7) Fetch post‐upgrade values
+        row = await conn.fetchrow(
+            "SELECT wood, barn_size FROM players WHERE user_id = $1",
+            user_id
+        )
+        new_wood = row["wood"]
+        new_size = row["barn_size"]
+
+    # 8) Report back
+    await ctx.send(
+        f"{ctx.author.mention} upgraded their barn from **{current_size}** to **{new_size}** slots "
+        f"for 🌳 **{next_cost} wood**! You now have **{new_wood} wood**."
+    )
+
 async def start_http_server():
     app = web.Application()
     app.router.add_get("/", handle_ping)
