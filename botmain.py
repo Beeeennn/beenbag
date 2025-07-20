@@ -112,6 +112,7 @@ CRAFT_RECIPES = {
 @bot.command(name="craft")
 async def craft(ctx, *args):
     """
+    Usage: !craft <tool> <tier> 
     Usage:
       !craft <tool>              → fishing rod only
       !craft <tool> <tier>       → other tools
@@ -196,7 +197,7 @@ async def craft_error(ctx, error):
 @bot.command(name="chop")
 @commands.cooldown(1, 240, commands.BucketType.user)  # 1 use per 240s per user
 async def chop(ctx):
-    """Gain 1 wood every 60s."""
+    """Gain 1 wood every 240s."""
     user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
@@ -236,7 +237,7 @@ async def chop_error(ctx, error):
 
 @bot.command(name="inv", aliases=["inventory"])
 async def inv(ctx):
-    """Show user’s inventory in a rich embed."""
+    """Show your inventory."""
     user_id = ctx.author.id
 
     # 1) Fetch their row
@@ -254,12 +255,12 @@ async def inv(ctx):
             WHERE user_id = $1                                 
                                  """,user_id)
         
-        emeralds = await conn.fetch("""
+        emerald_row = await conn.fetchrow("""
             SELECT emeralds
             FROM accountinfo
             WHERE discord_id = $1                                 
                                  """,user_id)
-        
+        emeralds = emerald_row["emeralds"] if emerald_row else 0
         # If they don’t even have a players row yet
     if not player and not tools and not emeralds:
         return await ctx.send(f"{ctx.author.mention}, your inventory is empty.")
@@ -316,10 +317,9 @@ async def inv(ctx):
             inline=False
         )
     if emeralds:
-        num = emeralds[0]
         embed.add_field(
-            name="Emeralds",
-            value=num,
+            name="💠Emeralds",
+            value=str(emeralds),
             inline=False
         )
 
