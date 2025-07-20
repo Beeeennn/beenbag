@@ -6,6 +6,9 @@ import discord
 from discord.ext import commands
 import asyncpg
 from aiohttp import web
+from PIL import Image
+import io
+from datetime import datetime,timedelta
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -85,6 +88,79 @@ async def on_message(message):
             """,
             message.author.id
         )
+    # 0) Try to capture any active spawn in this channel
+    name = message.content.strip().lower()
+    now = datetime.utcnow()
+    async with db_pool.acquire() as conn:
+        # find the oldest not-yet-expired spawn in this channel
+        spawn = await conn.fetchrow(
+            """
+            SELECT spawn_id, mob_name
+              FROM active_spawns
+             WHERE channel_id = $1
+               AND expires_at > $2
+             ORDER BY spawn_time
+             LIMIT 1
+            """,
+            message.channel.id, now
+        )
+        if spawn and name == spawn["mob_name"].lower():
+            # Got it first!
+            spawn_id = spawn["spawn_id"]
+            mob_name = spawn["mob_name"]
+
+            # 1) Add to the barn (or sacrifice if full)
+            #    First ensure the player/barn rows exist:
+            await conn.execute(
+                "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
+                message.author.id
+            )
+            await conn.execute(
+                "INSERT INTO barn_upgrades (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
+                message.author.id
+            )
+            # count current barn occupancy
+            occ = await conn.fetchval(
+                "SELECT COALESCE(SUM(count),0) FROM barn WHERE user_id = $1",
+                message.author.id
+            )
+            size = await conn.fetchval(
+                "SELECT barn_size FROM players WHERE user_id = $1",
+                message.author.id
+            )
+            if occ < size:
+                # room available → capture
+                await conn.execute(
+                    """
+                    INSERT INTO barn (user_id, mob_name, count)
+                    VALUES ($1,$2,1)
+                    ON CONFLICT (user_id,mob_name) DO UPDATE
+                      SET count = barn.count + 1
+                    """,
+                    message.author.id, mob_name
+                )
+                note = f"placed in your barn ({occ+1}/{size})."
+            else:
+                # no room → sacrifice for exp
+                # exp_gain = 5  # or whatever you want per mob
+                # await conn.execute(
+                #     "UPDATE players SET exp = exp + $1 WHERE user_id = $2",
+                #     exp_gain, message.author.id
+                # )
+                note = f"sacrificed for exp (barn is full)."
+
+            # 2) Delete the spawn so no one else can catch it
+            await conn.execute(
+                "DELETE FROM active_spawns WHERE spawn_id = $1",
+                spawn_id
+            )
+
+            # 3) Announce it
+            await message.channel.send(
+                f"{message.author.mention} caught the **{mob_name}** and {note}"
+            )
+            # skip further processing (so they don’t also run a command)
+            return
 
     await bot.process_commands(message)
 CRAFT_RECIPES = {
@@ -674,6 +750,60 @@ async def upbarn(ctx):
         f"{ctx.author.mention} upgraded their barn from **{current_size}** to **{new_size}** slots "
         f"for 🌳 **{next_cost} wood**! You now have **{new_wood} wood**."
     )
+# List of your mob names, matching files in assets/ (e.g. assets/Zombie.png) -----------------------------------------------------------------------------------------------------------
+MOBS = ["Zombie","Enderman","Cow","Chicken"]
+# Spawn channels
+SPAWN_CHANNEL_IDS = [1396534538498343002, 1396534603854123088,1396534658656763974,1396534732682035250]
+
+def pixelate(img: Image.Image, size: int) -> Image.Image:
+    """Downscale to (size×size) then upscale back, nearest-neighbor."""
+    # shrink
+    small = img.resize((size, size), resample=Image.NEAREST)
+    # blow back up to original dims
+    return small.resize(img.size, Image.NEAREST)
+
+async def spawn_mob_loop():
+    await bot.wait_until_ready()
+    while True:
+        # wait 4–20 minutes
+        await asyncio.sleep(random.randint(1*60, 2*60))
+
+        # pick channel & mob
+        chan = bot.get_channel(random.choice(SPAWN_CHANNEL_IDS))
+        mob = random.choice(MOBS)
+        try:
+            src = Image.open(f"assets/mobs/{mob}.png").convert("RGBA")
+        except FileNotFoundError:
+            # fallback to text if image missing
+            return await chan.send(f"A wild **{mob}** appeared! (no image found)")
+
+        # send initial 1×1 pixel frame
+        frame_sizes = [1, 2, 4, 8, 16, src.size[0]]  # final = full res width
+        b = io.BytesIO()
+        pixelate(src, frame_sizes[0]).save(b, format="PNG")
+        b.seek(0)
+        msg = await chan.send(file=discord.File(b, f"{mob}.png"))
+        expires = datetime.utcnow() + timedelta(minutes=5)  # give players 5m to catch
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO active_spawns
+                (channel_id, mob_name, message_id, revealed, spawn_time, expires_at)
+                VALUES ($1,$2,$3,0,$4,$5)
+                """,
+                chan.id, mob, msg.id, datetime.utcnow(), expires
+            )
+
+        # step through each larger frame
+        for size in frame_sizes[1:]:
+            await asyncio.sleep(2)  # pause between frames
+            b = io.BytesIO()
+            pixelate(src, size).save(b, format="PNG")
+            b.seek(0)
+            await msg.edit(content=None, attachments=[discord.File(b, f"{mob}.png")])
+
+        # finally announce capture command
+        await chan.send(f"A wild **{mob}** has appeared—type `!capture {mob}` to catch it!")
 
 async def start_http_server():
     app = web.Application()
@@ -697,6 +827,7 @@ async def main():
         except Exception:
             logging.exception(f"Bot disconnected; reconnecting in {retry_delay}s")
             await asyncio.sleep(retry_delay)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
