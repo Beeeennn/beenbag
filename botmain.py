@@ -103,18 +103,13 @@ async def on_ready():
         bot._spawn_task = bot.loop.create_task(spawn_mob_loop())
 @bot.event
 async def on_command_error(ctx, error):
-    # Ignore “unknown command” errors
-    if isinstance(error, commands.CommandNotFound):
+    # ignore these
+    if isinstance(error, (commands.CommandNotFound, commands.CommandOnCooldown)):
         return
 
-    # Let cooldown handlers do their thing
-    if isinstance(error, commands.CommandOnCooldown):
-        # If you have per‐command error handlers (like chop_error) they’ll run instead.
-        return
-
-    # For everything else, send an explosion and log
+    # notify and log the real exception
     await ctx.send(":explosion:")
-    logging.exception(f"Unhandled command error in {ctx.command}:")
+    logging.error(f"Unhandled exception in {ctx.command}: {error}", exc_info=error)
 async def ensure_player(user_id):
     async with db_pool.acquire() as conn:
         await conn.execute(
@@ -183,7 +178,7 @@ async def on_message(message):
                 rar_info = RARITIES[rarity]
                 reward  = rar_info["emeralds"]
                 await conn.execute(
-                    "UPDATE players SET emeralds = emeralds + $1 WHERE user_id = $2",
+                    "UPDATE accountinfo SET emeralds = emeralds + $1 WHERE discord_id = $2",
                     reward, message.author.id
                 )
                 
@@ -195,7 +190,7 @@ async def on_message(message):
                 rar_info = RARITIES[rarity]
                 reward  = rar_info["emeralds"]
                 await conn.execute(
-                    "UPDATE players SET emeralds = emeralds + $1 WHERE user_id = $2",
+                    "UPDATE accountinfo SET emeralds = emeralds + $1 WHERE discord_id = $2",
                     reward, message.author.id
                 )
                 
@@ -385,7 +380,7 @@ async def sacrifice(ctx, *, mob_name: str):
             )
         # grant emeralds
         await conn.execute(
-            "UPDATE players SET emeralds = emeralds + $1 WHERE user_id = $2",
+            "UPDATE accountinfo SET emeralds = emeralds + $1 WHERE discord_id = $2",
             reward, user_id
         )
 
