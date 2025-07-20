@@ -141,6 +141,36 @@ async def handle_give_his(request):
 
     return web.json_response({"user_id": user_id, "new_count": new_count})
 
+@bot.command(name="chop")
+@commands.cooldown(1, 240, commands.BucketType.user)  # 1 use per 60s per user
+async def chop(ctx):
+    """Gain 1 wood every 60s."""
+    user_id = ctx.author.id
+
+    async with db_pool.acquire() as conn:
+        # ensure the player record exists
+        await conn.execute(
+            "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
+            user_id
+        )
+
+        # grant 1 wood
+        await conn.execute(
+            "UPDATE players SET wood = wood + 1 WHERE user_id = $1;",
+            user_id
+        )
+
+        # fetch the updated wood count
+        row = await conn.fetchrow(
+            "SELECT wood FROM players WHERE user_id = $1;",
+            user_id
+        )
+
+    wood = row["wood"]
+    await ctx.send(
+        f"{ctx.author.mention} swung their axe and chopped 🌳 **1 wood**! "
+        f"You now have **{wood}** wood."
+    )
 async def start_http_server():
     app = web.Application()
     app.router.add_get("/", handle_ping)
