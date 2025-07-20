@@ -65,6 +65,23 @@ async def on_command_error(ctx, error):
     await ctx.send(":explosion:")
     logging.exception(f"Unhandled command error in {ctx.command}:")
 
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    # 1) Ensure they exist in accountinfo
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO accountinfo (discord_id)
+            VALUES ($1)
+            ON CONFLICT (discord_id) DO NOTHING;
+            """,
+            message.author.id
+        )
+
+    await bot.process_commands(message)
 CRAFT_RECIPES = {
     # tool        tier      wood   ore_count  ore_column    uses
     ("pickaxe",   "wood"):    (4,    0,      None, 10),
@@ -224,14 +241,27 @@ async def inv(ctx):
 
     # 1) Fetch their row
     async with db_pool.acquire() as conn:
-        row = await conn.fetchrow("""
+        player = await conn.fetchrow("""
             SELECT wood, cobblestone, iron, gold, diamond,
                    wheat
             FROM players
             WHERE user_id = $1
         """, user_id)
 
-    if not row:
+        tools = await conn.fetch("""
+            SELECT tool_name, tier, uses_left
+            FROM tools
+            WHERE user_id = $1                                 
+                                 """,user_id)
+        
+        emeralds = await conn.fetch("""
+            SELECT emeralds
+            FROM accountinfo
+            WHERE discord_id = $1                                 
+                                 """,user_id)
+        
+        # If they don’t even have a players row yet
+    if not player and not tools and not emeralds:
         return await ctx.send(f"{ctx.author.mention}, your inventory is empty.")
 
     # 2) Build the embed
@@ -252,21 +282,48 @@ async def inv(ctx):
         ("diamond",    "💎", "Diamond"),
         ("wheat",      "🌾", "Wheat")
     ]
+    res_lines = []
+    if player:
+        for key, emoji, label in stats:
+            val = player[key]
+            if val and val > 0:
+                res_lines.append(f"{emoji} **{label}**: {val}")
+    if res_lines:
+        embed.add_field(
+            name="Resources",
+            value="\n".join(res_lines),
+            inline=False
+        )
 
-    # 4) Add a field for each non-zero stat
-    for key, emoji, name in stats:
-        val = row[key]
-        if val and val > 0:
-            embed.add_field(
-                name=f"{emoji} {name}",
-                value=str(val),
-                inline=True
-            )
+    # Tools section
+    if tools:
+        tool_lines = []
+        for record in tools:
+            name = record["tool_name"].replace("_", " ").title()
+            tier = record["tier"].title()
+            uses = record["uses_left"]
+            emoji = {
+                "Axe": "🪓",
+                "Pickaxe": "⛏️",
+                "Hoe": "🌱",
+                "Fishing Rod": "🎣",
+                "Sword": "⚔️"
+            }.get(name, "🛠️")
+            tool_lines.append(f"{emoji} **{tier} {name}** — {uses} use{'s' if uses!=1 else ''}")
+        embed.add_field(
+            name="Tools",
+            value="\n".join(tool_lines),
+            inline=False
+        )
+    if emeralds:
+        num = emeralds[0]
+        embed.add_field(
+            name="Emeralds",
+            value=num,
+            inline=False
+        )
 
-    # 5) Footer or timestamp
-    embed.set_footer(text="Use !shop to spend your emeralds")
-
-    # 6) Send the embed
+    embed.set_footer(text="Use !shop to spend your emeralds & coins")
     await ctx.send(embed=embed)
 
 async def start_http_server():
