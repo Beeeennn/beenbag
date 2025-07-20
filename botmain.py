@@ -869,7 +869,7 @@ async def spawn_mob_loop():
         b = io.BytesIO()
         pixelate(src, frame_sizes[0]).save(b, format="PNG")
         b.seek(0)
-        msg = await chan.send("A mob is appearing, say it's name to catch it", file=discord.File(b, f"{mob}.png"))
+        msg = await chan.send("A mob is appearing, say it's name to catch it", file=discord.File(b, f"spawn.png"))
         expires = datetime.utcnow() + timedelta(minutes=5)  # give players 5m to catch
         async with db_pool.acquire() as conn:
             record = await conn.fetchrow(
@@ -895,7 +895,7 @@ async def spawn_mob_loop():
             b = io.BytesIO()
             pixelate(src, size).save(b, format="PNG")
             b.seek(0)
-            await msg.edit(content="A mob is appearing, say it's name to catch it", attachments=[discord.File(b, f"{mob}.png")])
+            await msg.edit(content="A mob is appearing, say it's name to catch it", attachments=[discord.File(b, f"spawn.png")])
 
 async def start_http_server():
     app = web.Application()
