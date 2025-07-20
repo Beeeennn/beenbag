@@ -188,7 +188,7 @@ async def on_message(message):
                     message.author.id, mob_name
                 )
                 note = f"placed in your barn ({occ+1}/{size})."
-            if MOBS[mob_name]["hostile"]:
+            elif MOBS[mob_name]["hostile"]:
                 note = f"sacrificed because it can't be kept."
             else:
                 # no room → sacrifice for exp
@@ -851,7 +851,6 @@ async def spawn_mob_loop():
 
     # weight = (max_r + 1) – rarity  → commons get highest weight
     weights = [(2**(max_r + 1)) - r for r in rarities]
-    
     while True:
         # wait 4–20 minutes
         await asyncio.sleep(random.randint(4*60, 6*60))
@@ -870,7 +869,7 @@ async def spawn_mob_loop():
         b = io.BytesIO()
         pixelate(src, frame_sizes[0]).save(b, format="PNG")
         b.seek(0)
-        msg = await chan.send("?", file=discord.File(b, f"{mob}.png"))
+        msg = await chan.send("A mob is appearing, say it's name to catch it", file=discord.File(b, f"{mob}.png"))
         expires = datetime.utcnow() + timedelta(minutes=5)  # give players 5m to catch
         async with db_pool.acquire() as conn:
             record = await conn.fetchrow(
@@ -896,7 +895,7 @@ async def spawn_mob_loop():
             b = io.BytesIO()
             pixelate(src, size).save(b, format="PNG")
             b.seek(0)
-            await msg.edit(content="?", attachments=[discord.File(b, f"{mob}.png")])
+            await msg.edit(content="A mob is appearing, say it's name to catch it", attachments=[discord.File(b, f"{mob}.png")])
 
 async def start_http_server():
     app = web.Application()
