@@ -50,16 +50,30 @@ async def on_ready():
 async def handle_ping(request):
     return web.Response(text="pong")
 
+@bot.event
+async def on_command_error(ctx, error):
+    # Ignore “unknown command” errors
+    if isinstance(error, commands.CommandNotFound):
+        return
+
+    # Let cooldown handlers do their thing
+    if isinstance(error, commands.CommandOnCooldown):
+        # If you have per‐command error handlers (like chop_error) they’ll run instead.
+        return
+
+    # For everything else, send an explosion and log
+    await ctx.send(":explosion:")
+    logging.exception(f"Unhandled command error in {ctx.command}:")
 
 CRAFT_RECIPES = {
     # tool        tier      wood   ore_count  ore_column    uses
-    ("pickaxe",   "wood"):    (1,    3,      "wood", 10),
+    ("pickaxe",   "wood"):    (4,    0,      None, 10),
     ("pickaxe",   "stone"):   (1,    3,      "cobblestone", 10),
     ("pickaxe",   "iron"):    (1,    3,      "iron",        10),
     ("pickaxe",   "gold"):    (1,    3,      "gold",        10),
     ("pickaxe",   "diamond"): (1,    3,      "diamond",     10),
 
-    ("hoe",       "wood"):    (1,    2,      "wood", 10),
+    ("hoe",       "wood"):    (4,    0,      None, 10),
     ("hoe",       "stone"):   (1,    2,      "cobblestone", 10),
     ("hoe",       "iron"):    (1,    2,      "iron",        10),
     ("hoe",       "gold"):    (1,    2,      "gold",        10),
@@ -71,7 +85,7 @@ CRAFT_RECIPES = {
     ("fishing_rod", "gold"):  (3,    0,      None,          10),
     ("fishing_rod", "diamond"):(3,   0,      None,          10),
 
-    ("sword",     "wood"):    (1,    2,      "wood", 3),
+    ("sword",     "wood"):    (4,    0,      None, 3),
     ("sword",     "stone"):   (1,    2,      "cobblestone", 3),
     ("sword",     "iron"):    (1,    2,      "iron",        3),
     ("sword",     "gold"):    (1,    2,      "gold",        3),
@@ -104,6 +118,7 @@ async def craft(ctx, *args):
     # If it’s the fishing rod, force tier to “wood”
     if tool in ("fishing_rod", "fishingrod", "fishing"):
         tier = "wood"
+        tool = "fishing_rod"
 
     if tier is None:
         return await ctx.send("❌ You must specify a tier for that tool.")
@@ -114,11 +129,6 @@ async def craft(ctx, *args):
 
     wood_cost, ore_cost, ore_col, uses = CRAFT_RECIPES[key]
 
-    if tier == "wood":
-        wood_cost += ore_cost
-        ore_cost == 0
-        ore_col = None
-        
     user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
