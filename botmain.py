@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-
+import random
 import discord
 from discord.ext import commands
 import asyncpg
@@ -234,6 +234,116 @@ async def chop_error(ctx, error):
         return
     # For any other errors, let them bubble up
     raise error
+
+# Define weighted drop tables per pickaxe tier
+DROP_TABLES = {
+    None: { "cobblestone": 100 },  # no pickaxe: only cobble
+    "wood":    {"cobblestone": 80, "iron": 15, "gold": 4,  "diamond": 1},
+    "stone":   {"cobblestone": 70, "iron": 20, "gold": 8, "diamond": 2},
+    "iron":    {"cobblestone": 50, "iron": 30, "gold": 16, "diamond": 4},
+    "gold":    {"cobblestone": 40, "iron": 30, "gold": 22, "diamond": 8},
+    "diamond": {"cobblestone": 20, "iron": 35, "gold": 30, "diamond": 15},
+}
+
+# Define an ordering for tiers so we can pick the best one
+TIER_ORDER = ["wood", "stone", "iron", "gold", "diamond"]
+
+@bot.command(name="mine")
+@commands.cooldown(1, 120, commands.BucketType.user)
+async def mine(ctx):
+    """Mine for cobblestone or ores; better pickaxes yield rarer drops."""
+    user_id = ctx.author.id
+
+    async with db_pool.acquire() as conn:
+        # 1) Fetch all usable pickaxes
+        pickaxes = await conn.fetch(
+            """
+            SELECT tier, uses_left
+              FROM tools
+             WHERE user_id = $1
+               AND tool_name = 'pickaxe'
+               AND uses_left > 0
+            """,
+            user_id
+        )
+
+        if not pickaxes:
+            return await ctx.send(
+                "❌ You need a pickaxe with at least 1 use to mine! Craft one with `!craft pickaxe wood`."
+            )
+
+        # 2) Determine your highest tier pickaxe
+        owned_tiers = {r["tier"] for r in pickaxes}
+        best_tier = None
+        for tier in reversed(TIER_ORDER):
+            if tier in owned_tiers:
+                best_tier = tier
+                break
+
+        # 3) Consume 1 use on that pickaxe
+        await conn.execute(
+            """
+            UPDATE tools
+               SET uses_left = uses_left - 1
+             WHERE user_id = $1
+               AND tool_name = 'pickaxe'
+               AND tier = $2
+               AND uses_left > 0
+            """,
+            user_id, best_tier
+        )
+
+        # 4) Pick a drop according to your tier’s table
+        table = DROP_TABLES[best_tier]
+        ores, weights = zip(*table.items())
+        drop = random.choices(ores, weights=weights, k=1)[0]
+
+        # 5) Grant the drop
+        await conn.execute(
+            f"UPDATE players SET {drop} = {drop} + 1 WHERE user_id = $1;",
+            user_id
+        )
+        # fetch new total
+        row = await conn.fetchrow(
+            f"SELECT {drop} FROM players WHERE user_id = $1;",
+            user_id
+        )
+        total = row[drop]
+
+    # Prepare the final result text
+    emojis = {"cobblestone":"🪨","iron":"🔩","gold":"🪙","diamond":"💎"}
+    emoji = emojis.get(drop, "⛏️")
+    result = (
+        f"{ctx.author.mention} mined with a **{best_tier.title()} Pickaxe** and found "
+        f"{emoji} **1 {drop}**! You now have **{total} {drop}**."
+    )
+
+    # --- 2) Play the animation ---
+    frames = [
+        "⛏️ Mining... [░░░░░]",
+        "⛏️ Mining... [▓░░░░]",
+        "⛏️ Mining... [▓▓░░░]",
+        "⛏️ Mining... [▓▓▓░░]",
+        "⛏️ Mining... [▓▓▓▓░]",
+        "⛏️ Mining... [▓▓▓▓▓]",
+    ]
+    msg = await ctx.send(f"{ctx.author.mention} {frames[0]}")
+    for frame in frames[1:]:
+        await asyncio.sleep(0.5)
+        await msg.edit(content=f"{ctx.author.mention} {frame}")
+
+    # --- 3) Show the result ---
+    await asyncio.sleep(0.5)
+    await msg.edit(content=result)
+
+@mine.error
+async def mine_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown):
+        retry = int(error.retry_after)
+        await ctx.send(f"⏳ You’re still mining! Try again in {retry}s.")
+        return
+    raise error
+
 
 @bot.command(name="inv", aliases=["inventory"])
 async def inv(ctx):
