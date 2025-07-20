@@ -803,14 +803,11 @@ async def spawn_mob_loop():
 
         # step through each larger frame
         for size in frame_sizes[1:]:
-            await asyncio.sleep(2)  # pause between frames
+            await asyncio.sleep(10)  # pause between frames
             b = io.BytesIO()
             pixelate(src, size).save(b, format="PNG")
             b.seek(0)
             await msg.edit(content=None, attachments=[discord.File(b, f"{mob}.png")])
-
-        # finally announce capture command
-        await chan.send(f"A wild **{mob}** has appeared—type `!capture {mob}` to catch it!")
 
 async def start_http_server():
     app = web.Application()
