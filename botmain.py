@@ -195,9 +195,9 @@ async def craft_error(ctx, error):
     raise error
 
 @bot.command(name="chop")
-@commands.cooldown(1, 240, commands.BucketType.user)  # 1 use per 240s per user
+@commands.cooldown(1, 120, commands.BucketType.user)  # 1 use per 240s per user
 async def chop(ctx):
-    """Gain 1 wood every 240s."""
+    """Gain 1 wood every 120s."""
     user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
@@ -535,6 +535,71 @@ async def inv(ctx):
     embed.set_footer(text="Use !shop to spend your emeralds & coins")
     await ctx.send(embed=embed)
 
+@bot.command(name="barn")
+async def barn(ctx):
+    """Show your barn: mobs inside, current size, and next upgrade cost."""
+    user_id = ctx.author.id
+
+    async with db_pool.acquire() as conn:
+        # 1) Get current barn size
+        row = await conn.fetchrow(
+            "SELECT barn_size FROM players WHERE user_id = $1",
+            user_id
+        )
+        barn_size = row["barn_size"] if row else 5
+
+        # 2) Get how many times they’ve upgraded
+        up = await conn.fetchrow(
+            "SELECT times_upgraded FROM barn_upgrades WHERE user_id = $1",
+            user_id
+        )
+        times_upgraded = up["times_upgraded"] if up else 0
+
+        # 3) Compute next upgrade cost (wood)
+        next_cost = times_upgraded + 1
+
+        # 4) Fetch all mobs in the barn
+        mobs = await conn.fetch(
+            "SELECT mob_name, count FROM barn WHERE user_id = $1 AND count > 0",
+            user_id
+        )
+
+    # Build the embed
+    embed = discord.Embed(
+        title=f"{ctx.author.display_name}'s Barn",
+        color=discord.Color.green()
+    )
+    if ctx.author.avatar:
+        embed.set_thumbnail(url=ctx.author.avatar.url)
+
+    # Barn size & next upgrade
+    embed.add_field(
+        name="🏠 Barn Size",
+        value=f"{barn_size} slots",
+        inline=True
+    )
+    embed.add_field(
+        name="🔨 Next Upgrade Cost",
+        value=f"{next_cost} wood",
+        inline=True
+    )
+
+    # Mobs list
+    if mobs:
+        lines = [f"• **{r['mob_name']}** × {r['count']}" for r in mobs]
+        embed.add_field(
+            name="Mobs Inside",
+            value="\n".join(lines),
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Mobs Inside",
+            value="_(empty)_",
+            inline=False
+        )
+
+    await ctx.send(embed=embed)
 async def start_http_server():
     app = web.Application()
     app.router.add_get("/", handle_ping)
