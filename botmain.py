@@ -201,47 +201,6 @@ async def chop_error(ctx, error):
     # For any other errors, let them bubble up
     raise error
 
-@bot.command(name="mine")
-@commands.cooldown(1, 240, commands.BucketType.user)  # 1 use per 240s per user
-async def mine(ctx):
-
-    user_id = ctx.author.id
-
-    async with db_pool.acquire() as conn:
-        # ensure the player record exists
-        await conn.execute(
-            "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
-            user_id
-        )
-
-        # grant 1 wood
-        await conn.execute(
-            "UPDATE players SET wood = wood + 1 WHERE user_id = $1;",
-            user_id
-        )
-
-        # fetch the updated wood count
-        row = await conn.fetchrow(
-            "SELECT wood FROM players WHERE user_id = $1;",
-            user_id
-        )
-
-    wood = row["wood"]
-    await ctx.send(
-        f"{ctx.author.mention} swung their axe and chopped 🌳 **1 wood**! "
-        f"You now have **{wood}** wood."
-    )
-@chop.error
-async def chop_error(ctx, error):
-    if isinstance(error, commands.CommandOnCooldown):
-        retry = int(error.retry_after)  # seconds remaining
-        await ctx.send(
-            f"This command is on cooldown. Try again in {retry} second{'s' if retry != 1 else ''}."
-        )
-        return
-    # For any other errors, let them bubble up
-    raise error
-
 @bot.command(name="inv", aliases=["inventory"])
 async def inv(ctx):
     """Show user’s inventory in a rich embed."""
