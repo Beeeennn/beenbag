@@ -237,7 +237,6 @@ async def chop_error(ctx, error):
 
 # Define weighted drop tables per pickaxe tier
 DROP_TABLES = {
-    None: { "cobblestone": 100 },  # no pickaxe: only cobble
     "wood":    {"cobblestone": 80, "iron": 15, "gold": 4,  "diamond": 1},
     "stone":   {"cobblestone": 70, "iron": 20, "gold": 8, "diamond": 2},
     "iron":    {"cobblestone": 50, "iron": 30, "gold": 16, "diamond": 4},
@@ -340,11 +339,105 @@ async def mine(ctx):
 async def mine_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
         retry = int(error.retry_after)
-        await ctx.send(f"⏳ You’re still mining! Try again in {retry}s.")
+        await ctx.send(f"You’re still mining! Try again in {retry}s.")
         return
     raise error
 
+WHEAT_DROP ={None: 2,
+            "wood":   3,
+            "stone":   4,
+            "iron":    5,
+            "gold":    6,
+            "diamond": 7
+}
 
+@bot.command(name="farm")
+@commands.cooldown(1, 120, commands.BucketType.user)
+async def farm(ctx):
+    """Mine for cobblestone or ores; better pickaxes yield rarer drops."""
+    user_id = ctx.author.id
+
+    async with db_pool.acquire() as conn:
+        # 1) Fetch all usable pickaxes
+        pickaxes = await conn.fetch(
+            """
+            SELECT tier, uses_left
+              FROM tools
+             WHERE user_id = $1
+               AND tool_name = 'hoe'
+               AND uses_left > 0
+            """,
+            user_id
+        )
+        # 2) Determine your highest tier pickaxe
+        owned_tiers = {r["tier"] for r in pickaxes}
+        best_tier = None
+        for tier in reversed(TIER_ORDER):
+            if tier in owned_tiers:
+                best_tier = tier
+                break
+
+        # 3) Consume 1 use on that pickaxe
+        if best_tier:
+            await conn.execute(
+                """
+                UPDATE tools
+                SET uses_left = uses_left - 1
+                WHERE user_id = $1
+                AND tool_name = 'pickaxe'
+                AND tier = $2
+                AND uses_left > 0
+                """,
+                user_id, best_tier
+            )
+
+        # 4) Pick a drop according to your tier’s table
+        avg = WHEAT_DROP[best_tier]
+        drop = random.randint(avg-1,avg+1)
+
+        # 5) Grant the drop
+        await conn.execute(
+            f"UPDATE players SET wheat = wheat + {drop} WHERE user_id = $1;",
+            user_id
+        )
+        # fetch new total
+        row = await conn.fetchrow(
+            f"SELECT wheat FROM players WHERE user_id = $1;",
+            user_id
+        )
+        total = row["wheat"]
+
+    # Prepare the final result text
+    result = (
+        f"{ctx.author.mention} farmed with a **{best_tier.title()} Pickaxe** and found "
+        f"🌾 **{drop} Wheat**! You now have **{total} Wheat**."
+    )
+
+    # --- 2) Play the animation ---
+    frames = [
+        "⛏️ farming... [⛏️🌾🌾🌾🌾]",
+        "⛏️ farming... [🌿⛏️🌾🌾🌾]",
+        "⛏️ farming... [🌿🌿⛏️🌾🌾]",
+        "⛏️ farming... [🌿🌿🌿⛏️🌾]",
+        "⛏️ farming... [🌿🌿🌿🌿⛏️]",
+        "⛏️ farming... [🌿🌿🌿🌿🌿]",
+    ]
+    msg = await ctx.send(f"{ctx.author.mention} {frames[0]}")
+    for frame in frames[1:]:
+        await asyncio.sleep(0.5)
+        await msg.edit(content=f"{ctx.author.mention} {frame}")
+
+    # --- 3) Show the result ---
+    await asyncio.sleep(0.5)
+    await msg.edit(content=result)
+
+@mine.error
+async def mine_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown):
+        retry = int(error.retry_after)
+        await ctx.send(f"You’re still mining! Try again in {retry}s.")
+        return
+    raise error
 @bot.command(name="inv", aliases=["inventory"])
 async def inv(ctx):
     """Show your inventory."""
