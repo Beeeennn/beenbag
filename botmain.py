@@ -46,6 +46,10 @@ async def init_db():
 async def on_ready():
     logging.info(f"Bot ready as {bot.user}")
 
+# HTTP endpoints
+async def handle_ping(request):
+    return web.Response(text="pong")
+
 @bot.command(name="chop")
 @commands.cooldown(1, 240, commands.BucketType.user)  # 1 use per 60s per user
 async def chop(ctx):
@@ -79,7 +83,6 @@ async def chop(ctx):
 async def start_http_server():
     app = web.Application()
     app.router.add_get("/", handle_ping)
-    app.router.add_post("/give_his", handle_give_his)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
