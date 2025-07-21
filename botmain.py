@@ -307,7 +307,7 @@ async def linkyt(ctx, *, channel_name: str):
     f"🔗 **YouTube Link Code** 🔗\n"
     f"Channel: **{channel_name}**\n"
     f"Your code is: `{code}`\n\n"
-    "Please type `!link <code>` in one of my livestreams within 3 hours to complete linking."
+    "Please type `!link <code>` in one of my **livestreams** within 3 hours to complete linking."
         
     )
     if sent:
@@ -407,7 +407,7 @@ async def hourly_channel_exp_flush():
             # pass None for ctx so gain_exp just does DB+roles without messaging
             await gain_exp(uid, xp, None)
         # wait one hour
-        await asyncio.sleep(600)
+        await asyncio.sleep(3600)
 
 @bot.event
 async def on_ready():
@@ -1781,7 +1781,29 @@ def pixelate(img: Image.Image, size: int) -> Image.Image:
     small = img.resize((size, size), resample=Image.NEAREST)
     # blow back up to original dims
     return small.resize(img.size, Image.NEAREST)
+def zoom_frame(src: Image.Image, zoom_frac: float) -> Image.Image:
+    """
+    Returns a new Image that is the center zoom_frac×crop of src,
+    scaled back up to src’s full size.
 
+    zoom_frac: 0.0 < f ≤ 1.0, fraction of the original size to show.
+    e.g. 0.1 for 10%, 1.0 for the full image.
+    """
+    w, h = src.size
+    # clamp zoom_frac into (0,1]
+    f = max(0.01, min(zoom_frac, 1.0))
+
+    # compute crop size
+    cw = int(w * f)
+    ch = int(h * f)
+
+    # center crop
+    left = (w - cw) // 2
+    top  = (h - ch) // 2
+    crop = src.crop((left, top, left + cw, top + ch))
+
+    # scale back up to full size
+    return crop.resize((w, h), resample=Image.NEAREST)
 async def watch_spawn_expiry(spawn_id, channel_id, message_id, mob_name, expires_at):
     # Sleep until the exact expiry time
     now = datetime.utcnow()
@@ -1846,11 +1868,16 @@ async def spawn_mob_loop():
             except FileNotFoundError:
                 # fallback to text if image missing
                 await chan.send(f"A wild **{mob}** appeared! (no image found)")
-
+            pix = (random.randint(1, 2) == 1)
+            pix = False
             # send initial 1×1 pixel frame
             frame_sizes = [1, 2, 4, 8, 16, src.size[0]]  # final = full res width
+            zoom_levels = [0.05, 0.2, 0.4, 0.6, 0.8, 1.0]
             b = io.BytesIO()
-            pixelate(src, frame_sizes[0]).save(b, format="PNG")
+            if pix:
+                pixelate(src, frame_sizes[0]).save(b, format="PNG")
+            else:
+                zoom_frame(src, zoom_levels[0]).save(b, format="PNG")
             b.seek(0)
             msg = await chan.send("A mob is appearing, say it's name to catch it", file=discord.File(b, f"spawn.png"))
 
@@ -1874,12 +1901,21 @@ async def spawn_mob_loop():
                                 expires_at=expires)
             )
                     # step through each larger frame
-            for size in frame_sizes[1:]:
-                await asyncio.sleep(10)  # pause between frames
-                b = io.BytesIO()
-                pixelate(src, size).save(b, format="PNG")
-                b.seek(0)
-                await msg.edit(content="A mob is appearing, say it's name to catch it", attachments=[discord.File(b, f"spawn.png")])
+            if pix:
+                for size in frame_sizes[1:]:
+                    await asyncio.sleep(10)  # pause between frames
+                    b = io.BytesIO()
+                    pixelate(src, size).save(b, format="PNG")
+                    b.seek(0)
+                    await msg.edit(content="A mob is appearing, say it's name to catch it", attachments=[discord.File(b, f"spawn.png")])
+            else:
+                for size in zoom_levels[1:]:
+                    await asyncio.sleep(10)  # pause between frames
+                    b = io.BytesIO()
+                    zoom_frame(src, size).save(b, format="PNG")
+                    b.seek(0)
+                    await msg.edit(content="A mob is appearing, say it's name to catch it", attachments=[discord.File(b, f"spawn.png")])
+
         except Exception:
             await asyncio.sleep(60)
 async def start_http_server():
