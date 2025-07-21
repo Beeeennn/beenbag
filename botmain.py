@@ -217,7 +217,7 @@ async def linkyt(ctx, *, channel_name: str):
                 (discord_id, yt_channel_id, code, expires_at)
             VALUES ($1,$2,$3,$4)
             ON CONFLICT (discord_id) DO UPDATE
-              SET yt_channel_name = EXCLUDED.yt_channel_name,
+              SET yt_channel_id = EXCLUDED.yt_channel_id,
                   code            = EXCLUDED.code,
                   expires_at      = EXCLUDED.expires_at;
             """,
