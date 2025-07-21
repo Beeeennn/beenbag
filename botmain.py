@@ -1130,62 +1130,64 @@ async def spawn_mob_loop():
     # weight = (max_r + 1) – rarity  → commons get highest weight
     weights = [(2**(max_r + 1)) - r for r in rarities]
     while True:
-        # wait 4–20 minutes
-        await asyncio.sleep(random.randint(2*60, 5*60))
-
-        # pick channel & mob
-        chan = bot.get_channel(random.choice(SPAWN_CHANNEL_IDS))
-        mob = random.choices(mob_names, weights=weights, k=1)[0]
-        mob_path = f"assets/mobs/{mob}"
         try:
-            if os.path.isdir(mob_path):
-                # It's a folder — pick a random image file inside
-                image_files = [f for f in os.listdir(mob_path) if f.lower().endswith((".png", ".jpg", ".jpeg"))]
-                if not image_files:
-                    raise FileNotFoundError("No image files in directory")
-                selected_image = random.choice(image_files)
-                src = Image.open(os.path.join(mob_path, selected_image)).convert("RGBA")
-            else:
-                # It's a single image
-                src = Image.open(f"{mob_path}.png").convert("RGBA")
-        except FileNotFoundError:
-            # fallback to text if image missing
-            return await chan.send(f"A wild **{mob}** appeared! (no image found)")
+            # wait 4–20 minutes
+            await asyncio.sleep(random.randint(2*60, 5*60))
 
-        # send initial 1×1 pixel frame
-        frame_sizes = [1, 2, 4, 8, 16, src.size[0]]  # final = full res width
-        b = io.BytesIO()
-        pixelate(src, frame_sizes[0]).save(b, format="PNG")
-        b.seek(0)
-        msg = await chan.send("A mob is appearing, say it's name to catch it", file=discord.File(b, f"spawn.png"))
+            # pick channel & mob
+            chan = bot.get_channel(random.choice(SPAWN_CHANNEL_IDS))
+            mob = random.choices(mob_names, weights=weights, k=1)[0]
+            mob_path = f"assets/mobs/{mob}"
+            try:
+                if os.path.isdir(mob_path):
+                    # It's a folder — pick a random image file inside
+                    image_files = [f for f in os.listdir(mob_path) if f.lower().endswith((".png", ".jpg", ".jpeg"))]
+                    if not image_files:
+                        raise FileNotFoundError("No image files in directory")
+                    selected_image = random.choice(image_files)
+                    src = Image.open(os.path.join(mob_path, selected_image)).convert("RGBA")
+                else:
+                    # It's a single image
+                    src = Image.open(f"{mob_path}.png").convert("RGBA")
+            except FileNotFoundError:
+                # fallback to text if image missing
+                await chan.send(f"A wild **{mob}** appeared! (no image found)")
 
-        expires = datetime.utcnow() + timedelta(seconds=RARITIES[MOBS[mob]["rarity"]]["stay"])  # give players 5m to catch
-        async with db_pool.acquire() as conn:
-            record = await conn.fetchrow(
-            """
-            INSERT INTO active_spawns
-            (channel_id, mob_name, message_id, revealed, spawn_time, expires_at)
-            VALUES ($1,$2,$3,0,$4,$5)
-            RETURNING spawn_id
-            """,
-            chan.id, mob, msg.id, datetime.utcnow(), expires
-        )
-        spawn_id = record["spawn_id"]
-        bot.loop.create_task(
-            watch_spawn_expiry(spawn_id=spawn_id,  # you'll fetch this below
-                            channel_id=chan.id,
-                            message_id=msg.id,
-                            mob_name=mob,
-                            expires_at=expires)
-        )
-                # step through each larger frame
-        for size in frame_sizes[1:]:
-            await asyncio.sleep(10)  # pause between frames
+            # send initial 1×1 pixel frame
+            frame_sizes = [1, 2, 4, 8, 16, src.size[0]]  # final = full res width
             b = io.BytesIO()
-            pixelate(src, size).save(b, format="PNG")
+            pixelate(src, frame_sizes[0]).save(b, format="PNG")
             b.seek(0)
-            await msg.edit(content="A mob is appearing, say it's name to catch it", attachments=[discord.File(b, f"spawn.png")])
+            msg = await chan.send("A mob is appearing, say it's name to catch it", file=discord.File(b, f"spawn.png"))
 
+            expires = datetime.utcnow() + timedelta(seconds=RARITIES[MOBS[mob]["rarity"]]["stay"])  # give players 5m to catch
+            async with db_pool.acquire() as conn:
+                record = await conn.fetchrow(
+                """
+                INSERT INTO active_spawns
+                (channel_id, mob_name, message_id, revealed, spawn_time, expires_at)
+                VALUES ($1,$2,$3,0,$4,$5)
+                RETURNING spawn_id
+                """,
+                chan.id, mob, msg.id, datetime.utcnow(), expires
+            )
+            spawn_id = record["spawn_id"]
+            bot.loop.create_task(
+                watch_spawn_expiry(spawn_id=spawn_id,  # you'll fetch this below
+                                channel_id=chan.id,
+                                message_id=msg.id,
+                                mob_name=mob,
+                                expires_at=expires)
+            )
+                    # step through each larger frame
+            for size in frame_sizes[1:]:
+                await asyncio.sleep(10)  # pause between frames
+                b = io.BytesIO()
+                pixelate(src, size).save(b, format="PNG")
+                b.seek(0)
+                await msg.edit(content="A mob is appearing, say it's name to catch it", attachments=[discord.File(b, f"spawn.png")])
+        except Exception:
+            await asyncio.sleep(60)
 async def start_http_server():
     app = web.Application()
     app.router.add_get("/", handle_ping)
