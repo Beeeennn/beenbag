@@ -234,8 +234,8 @@ async def gain_exp(user_id, exp_gain, message):
         ) or 0
         new_exp = old_exp + exp_gain
         await conn.execute(
-            "UPDATE accountinfo SET experience = $1 WHERE discord_id = $2",
-            new_exp, user_id
+            "UPDATE accountinfo SET experience = $1, overallexp += $2 WHERE discord_id = $3",
+            new_exp, exp_gain, user_id
         )
 
     old_lvl = get_level_from_exp(old_exp)
