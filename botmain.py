@@ -162,13 +162,13 @@ async def gain_exp(user_id,exp_gain,ctx):
     async with db_pool.acquire() as conn:
         # 1) Fetch old exp
         old_exp = await conn.fetchval(
-            "SELECT exp FROM accountinfo WHERE discord_id = $1", user_id
+            "SELECT experience FROM accountinfo WHERE discord_id = $1", user_id
         ) or 0
 
         # 2) Compute new exp and update
         new_exp = old_exp + exp_gain
         await conn.execute(
-            "UPDATE accountinfo SET exp = $1 WHERE discord_id = $2", new_exp, user_id
+            "UPDATE accountinfo SET experience = $1 WHERE discord_id = $2", new_exp, user_id
         )
 
         # 3) Check for level‐up
@@ -425,7 +425,7 @@ async def exp_cmd(ctx):
     # 1) Fetch their total exp from accountinfo
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT exp FROM accountinfo WHERE discord_id = $1",
+            "SELECT experience FROM accountinfo WHERE discord_id = $1",
             user_id
         )
     total_exp = row["exp"] if row else 0
