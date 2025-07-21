@@ -214,7 +214,7 @@ async def linkyt(ctx, *, channel_name: str):
         await conn.execute(
             """
             INSERT INTO pending_links
-                (discord_id, yt_channel_name, code, expires_at)
+                (discord_id, yt_channel_id, code, expires_at)
             VALUES ($1,$2,$3,$4)
             ON CONFLICT (discord_id) DO UPDATE
               SET yt_channel_name = EXCLUDED.yt_channel_name,
