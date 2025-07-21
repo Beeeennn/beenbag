@@ -209,7 +209,7 @@ async def on_command_error(ctx, error):
         return
 
     # notify and log the real exception
-    await ctx.send(":explosion:")
+    await ctx.send(":explosion: (something isn't right here)")
     logging.error(f"Unhandled exception in {ctx.command}: {error}", exc_info=error)
 async def ensure_player(user_id):
     async with db_pool.acquire() as conn:
@@ -239,7 +239,6 @@ async def gain_exp(user_id, exp_gain, message):
 
     old_lvl = get_level_from_exp(old_exp)
     new_lvl = get_level_from_exp(new_exp)
-    logging.info(f"{old_exp} -> {new_exp}")
 
     if new_lvl > old_lvl:
         member = message.author
@@ -275,7 +274,6 @@ async def on_message(message):
     bucket = chat_xp_cd.get_bucket(message)
     can_gain = bucket.update_rate_limit() is None
     if can_gain:
-        logging.info(f"Awarded 1 XP to {message.author}")
         await gain_exp(user_id, 1,message)
         
     # 0) Try to capture any active spawn in this channel
@@ -732,7 +730,7 @@ async def mine(ctx):
 async def mine_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
         retry = int(error.retry_after)
-        await ctx.send(f"You’re still mining! Try again in {retry}s.")
+        await ctx.send(f"You’re too tired to mine again now! Try again in {retry}s.")
         return
     raise error
 
@@ -836,7 +834,7 @@ async def farm(ctx):
 async def farm_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
         retry = int(error.retry_after)
-        await ctx.send(f"You’re still farming! Try again in {retry}s.")
+        await ctx.send(f"You’re too tired to farm again now! Try again in {retry}s.")
         return
     raise error
 @bot.command(name="inv", aliases=["inventory"])
