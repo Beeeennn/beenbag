@@ -340,6 +340,29 @@ async def yt(ctx, member: discord.Member = None):
     embed.add_field(name="Channel Name", value=name or "–", inline=True)
     embed.add_field(name="Link", value=f"[Watch on YouTube]({url})", inline=True)
     await ctx.send(embed=embed)
+async def hourly_channel_exp_flush():
+    await bot.wait_until_ready()
+    while True:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT channel_id, exp
+                  FROM channel_exp
+                 WHERE exp > 0
+            """)
+            # zero them out
+            await conn.execute("UPDATE channel_exp SET exp = 0 WHERE exp > 0")
+        # hand each off to your existing gain_exp (which updates DB + roles)
+        for record in rows:
+            uid = await conn.fetchval("""
+                                      SELECT discord_id
+                                      FROM accountinfo
+                                      WHERE yt_channel_id = $1                                      
+                                      """,record["channel_id"])
+            xp  = record["exp"]
+            # pass None for ctx so gain_exp just does DB+roles without messaging
+            await gain_exp(uid, xp, None)
+        # wait one hour
+        await asyncio.sleep(600)
 
 @bot.event
 async def on_ready():
@@ -347,6 +370,8 @@ async def on_ready():
     if not hasattr(bot, "_decay_task"):
         bot._decay_task = bot.loop.create_task(daily_level_decay())
     # Only schedule it once
+    if not hasattr(bot, "_channel_exp_task"):
+        bot._channel_exp_task = bot.loop.create_task(hourly_channel_exp_flush())
     if not hasattr(bot, "_spawn_task"):
         bot._spawn_task = bot.loop.create_task(spawn_mob_loop())
 @bot.event
@@ -372,36 +397,72 @@ def get_level_from_exp(exp: int) -> int:
         if exp >= req and level > lvl:
             lvl = level
     return lvl
+ANNOUNCE_CHANNEL_ID = 1396194783713824800
 # 2exp for chat every half hour (100/day), streams = 1exp every 2 minutes (60-150)/day, shop 1 emerald = 1 exp
-async def gain_exp(user_id, exp_gain, message):
+async def gain_exp(user_id: int, exp_gain: int, message: discord.Message = None):
+    # 1) Update experience in DB
     async with db_pool.acquire() as conn:
         old_exp = await conn.fetchval(
             "SELECT experience FROM accountinfo WHERE discord_id = $1", user_id
         ) or 0
         new_exp = old_exp + exp_gain
         await conn.execute(
-            "UPDATE accountinfo SET experience = $1, overallexp = overallexp + $2 WHERE discord_id = $3",
+            """
+            UPDATE accountinfo
+               SET experience = $1,
+                   overallexp   = overallexp + $2
+             WHERE discord_id = $3
+            """,
             new_exp, exp_gain, user_id
         )
 
+    # 2) Compute old & new levels
     old_lvl = get_level_from_exp(old_exp)
     new_lvl = get_level_from_exp(new_exp)
 
+    # 3) If leveled up, adjust roles
     if new_lvl > old_lvl:
-        member = message.author
-        guild  = message.guild
+        # find the announce channel
+        announce_ch = bot.get_channel(ANNOUNCE_CHANNEL_ID)
+
+        # you need a guild/member to add/remove roles
+        # prefer the guild from `message`, else search all bot.guilds
+        if message and message.guild:
+            guild = message.guild
+        else:
+            # fallback: pick the first guild where the user is a member
+            guild = None
+            for g in bot.guilds:
+                if g.get_member(user_id):
+                    guild = g
+                    break
+
+        member = guild.get_member(user_id) if guild else None
+
+        # 3a) remove previous milestone role (if any)
         for lvl in MILESTONE_ROLES:
-            if old_lvl < lvl <= new_lvl:
-                role = discord.utils.get(guild.roles, name=ROLE_NAMES[lvl])
-                if lvl-10 in ROLE_NAMES:
-                    old_role = discord.utils.get(guild.roles, name=ROLE_NAMES[lvl-10])
+            if lvl == new_lvl:
+                prev = lvl - 10
+                if prev in ROLE_NAMES and member:
+                    old_role = discord.utils.get(guild.roles, name=ROLE_NAMES[prev])
                     if old_role in member.roles:
-                        await member.remove_roles(old_role, reason ="Leveled up")
-                if role:
-                    await member.add_roles(role, reason="Leveled up")
-        await message.channel.send(
-            f"🎉 {member.mention} leveled up to **Level {new_lvl}**!"
-        )
+                        await member.remove_roles(old_role, reason="Leveled up")
+
+        # 3b) add new milestone role (if it's one)
+        if new_lvl in MILESTONE_ROLES and member:
+            new_role = discord.utils.get(guild.roles, name=ROLE_NAMES[new_lvl])
+            if new_role:
+                await member.add_roles(new_role, reason="Leveled up")
+
+        # 4) Craft the announcement text
+        mention = member.mention if member else f"<@{user_id}>"
+        text = f"🎉 {mention} leveled up to **Level {new_lvl}**!"
+
+        # 5) Send it in the announce channel (fallback to message.channel)
+        if announce_ch:
+            await announce_ch.send(text)
+        elif message:
+            await message.channel.send(text)
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -1587,7 +1648,7 @@ async def watch_spawn_expiry(spawn_id, channel_id, message_id, mob_name, expires
             pass
 
         # Announce the escape
-        await channel.send(f"You let the **{mob_name}** escape, now it must fend for itsself, poor **{mob_name}**")
+        await channel.send(f"**{mob_name}** escaped, maybe next time")
 
 async def spawn_mob_loop():
     await bot.wait_until_ready()
