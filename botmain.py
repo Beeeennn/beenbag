@@ -208,7 +208,7 @@ async def linkyt(ctx, *, channel_name: str):
     user_id = ctx.author.id
     code = make_link_code(8)
     expires = datetime.utcnow() + timedelta(hours=3)
-
+    channel_name = channel_name.removeprefix("@")
     # store (or update) in pending_links
     async with db_pool.acquire() as conn:
         await conn.execute(
@@ -236,9 +236,66 @@ async def linkyt(ctx, *, channel_name: str):
     except discord.Forbidden:
         await ctx.send(
             f"{ctx.author.mention} I couldn’t DM you—"
-            " please enable DMs from server members and try again."
+            " please enable DMs from server members and try again (Content and social -> Social Permissions -> Direct Messages) You can turn it back off after."
         )
 
+
+# IDs of channels where !yt is permitted
+LINK_CHANNELS = [1395577501916336128, 1396194783713824800]
+
+@bot.command(name="yt")
+async def yt(ctx, member: discord.Member = None):
+    """
+    Show the YouTube channel linked to a user.
+    Usage:
+      !yt             → your own channel
+      !yt @Someone    → their channel
+    """
+    # 0) Restrict to LINK_CHANNELS
+    if ctx.channel.id not in LINK_CHANNELS:
+        return await ctx.send("❌ You can’t do that here.")
+
+    # 1) Determine whose data to look up
+    target  = member or ctx.author
+    user_id = target.id
+
+    # 2) Fetch from accountinfo
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT yt_channel_name, yt_channel_id
+              FROM accountinfo
+             WHERE discord_id = $1
+            """,
+            user_id
+        )
+
+    # 3) No link yet?
+    if not row or (not row["yt_channel_name"] and not row["yt_channel_id"]):
+        if target == ctx.author:
+            return await ctx.send(
+                "You haven’t linked a YouTube channel! Use `!linkyt <channel name>`."
+            )
+        else:
+            return await ctx.send(f"{target.display_name} hasn’t linked YT yet.")
+
+    # 4) Build URL
+    name = row["yt_channel_name"]
+    cid  = row["yt_channel_id"]
+    if cid:
+        url = f"https://www.youtube.com/channel/{cid}"
+    else:
+        url = f"https://www.youtube.com/c/{name.replace(' ', '')}"
+
+    # 5) Send embed
+    embed = discord.Embed(
+        title=f"{target.display_name}'s YouTube",
+        url=url, color=discord.Color.red()
+    )
+    embed.add_field(name="Channel Name", value=name or "–", inline=True)
+    embed.add_field(name="Link", value=f"[Watch on YouTube]({url})", inline=True)
+    await ctx.send(embed=embed)
+    
 @bot.event
 async def on_ready():
     logging.info(f"Bot ready as {bot.user}")
