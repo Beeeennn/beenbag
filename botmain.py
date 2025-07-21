@@ -84,7 +84,8 @@ MOBS = {"Zombie":{"rarity":1,"hostile":True},
         "Wolf":{"rarity":1,"hostile":False},
         }
 
-
+# Define an ordering for tiers so we can pick the best one
+TIER_ORDER = ["wood", "stone", "iron", "gold", "diamond"]
 # cumulative exp required for each level
 LEVEL_EXP = {
     1:   7,    2:  16,   3:  27,   4:  40,   5:   55,
@@ -403,6 +404,12 @@ CRAFT_RECIPES = {
     ("sword",     "iron"):    (1,    2,      "iron",        3),
     ("sword",     "gold"):    (1,    2,      "gold",        3),
     ("sword",     "diamond"): (1,    2,      "diamond",     3),
+
+    ("axe",     "wood"):    (4,    0,      None, 5),
+    ("axe",     "stone"):   (1,    3,      "cobblestone", 10),
+    ("axe",     "iron"):    (1,    3,      "iron",        5),
+    ("axe",     "gold"):    (1,    3,      "gold",        10),
+    ("axe",     "diamond"): (1,    3,      "diamond",     10),
 }
 
 @bot.command(name="craft")
@@ -587,7 +594,7 @@ async def sacrifice(ctx, *, mob_name: str):
     )
     embed.add_field(name="Rarity", value=rar_info["name"].title(), inline=True)
     await ctx.send(embed=embed)
-    
+AXEWOOD = {None:1,"wood":2,"stone":2,"iron":3,"gold":3,"diamond":4}
 @bot.command(name="chop")
 @commands.cooldown(1, 120, commands.BucketType.user)  # 1 use per 240s per user
 async def chop(ctx):
@@ -596,11 +603,29 @@ async def chop(ctx):
 
     async with db_pool.acquire() as conn:
         await ensure_player(ctx.author.id)
-
+        # 1) Fetch all usable pickaxes
+        axes = await conn.fetch(
+            """
+            SELECT tier, uses_left
+              FROM tools
+             WHERE user_id = $1
+               AND tool_name = 'axe'
+               AND uses_left > 0
+            """,
+            user_id
+        )
+        owned_tiers = {r["tier"] for r in axes}
+        best_tier = None
+        for tier in reversed(TIER_ORDER):
+            if tier in owned_tiers:
+                best_tier = tier
+                break
+        
+        num = AXEWOOD[best_tier]
         # grant 1 wood
         await conn.execute(
-            "UPDATE players SET wood = wood + 1 WHERE user_id = $1;",
-            user_id
+            "UPDATE players SET wood = wood + $1 WHERE user_id = $2;",
+            num, user_id
         )
 
         # fetch the updated wood count
@@ -611,7 +636,7 @@ async def chop(ctx):
 
     wood = row["wood"]
     await ctx.send(
-        f"{ctx.author.mention} swung their axe and chopped 🌳 **1 wood**! "
+        f"{ctx.author.mention} swung their axe and chopped 🌳 **{num} wood**! "
         f"You now have **{wood}** wood."
     )
 @chop.error
@@ -634,8 +659,7 @@ DROP_TABLES = {
     "diamond": {"cobblestone": 20, "iron": 35, "gold": 30, "diamond": 15},
 }
 
-# Define an ordering for tiers so we can pick the best one
-TIER_ORDER = ["wood", "stone", "iron", "gold", "diamond"]
+
 
 @bot.command(name="mine")
 @commands.cooldown(1, 120, commands.BucketType.user)
