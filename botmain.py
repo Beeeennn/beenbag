@@ -174,7 +174,7 @@ async def gain_exp(user_id,exp_gain,ctx):
         # 3) Check for level‐up
         old_lvl = get_level_from_exp(old_exp)
         new_lvl = get_level_from_exp(new_exp)
-
+        logging.info(f"{old_exp} -> {new_exp}")
         if new_lvl > old_lvl:
             guild = ctx.guild  # or message.guild in on_message
             member = guild.get_member(user_id)
@@ -203,10 +203,13 @@ async def on_message(message):
             """,
             message.author.id
         )
+    user_id = message.author.id
     bucket = chat_xp_cd.get_bucket(message)
-    if bucket.update_rate_limit() is None:
-
-        gain_exp(message.author.id, 1,message)
+    can_gain = bucket.update_rate_limit() is None
+    if can_gain:
+        logging.info(f"Awarded 1 XP to {message.author}")
+        gain_exp(user_id, 1,message)
+        
     # 0) Try to capture any active spawn in this channel
     name = message.content.strip().lower()
     now = datetime.utcnow()
