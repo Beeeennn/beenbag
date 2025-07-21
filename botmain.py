@@ -73,7 +73,15 @@ MOBS = {"Zombie":{"rarity":1,"hostile":True},
         "Brown Panda":{"rarity":5,"hostile":False},
         "Parrot":{"rarity":2,"hostile":False},
         "Pig":{"rarity":1,"hostile":False},
-        "Sheep":{"rarity":1,"hostile":False}        
+        "Sheep":{"rarity":1,"hostile":False},
+        "Polar Bear":{"rarity":1,"hostile":True},
+        "Pufferfish":{"rarity":2,"hostile":True},
+        "Salmon":{"rarity":1,"hostile":True},
+        "Squid":{"rarity":1,"hostile":True},
+        "Strider":{"rarity":2,"hostile":False},
+        "Tropical Fish":{"rarity":3,"hostile":True},
+        "Turtle":{"rarity":1,"hostile":False},
+        "Wolf":{"rarity":1,"hostile":False},
         }
 
 
@@ -90,7 +98,7 @@ LEVEL_EXP = {
     41:3122,   42:3333,  43:3553, 44:3782, 45: 4020,
     46:4267,   47:4523,  48:4788, 49:5062, 50: 5345,
     51:5637,   52:5938,  53:6248, 54:6567, 55: 6895,
-    56:7232,   57:7578,  58:7933, 59:8297
+    56:7232,   57:7578,  58:7933, 59:8297, 60:8670
 }
 
 # which levels should get roles
@@ -100,8 +108,7 @@ ROLE_NAMES = {
     10:"Iron",
     20:"Gold",
     30:"Diamond",
-    40:"Netherite",
-    50:"Bedrock"
+    40:"Netherite"
 }
 # We'll hold an asyncpg pool here
 db_pool: asyncpg.Pool = None
@@ -1107,8 +1114,18 @@ async def spawn_mob_loop():
         # pick channel & mob
         chan = bot.get_channel(random.choice(SPAWN_CHANNEL_IDS))
         mob = random.choices(mob_names, weights=weights, k=1)[0]
+        mob_path = f"assets/mobs/{mob}"
         try:
-            src = Image.open(f"assets/mobs/{mob}.png").convert("RGBA")
+            if os.path.isdir(mob_path):
+                # It's a folder — pick a random image file inside
+                image_files = [f for f in os.listdir(mob_path) if f.lower().endswith((".png", ".jpg", ".jpeg"))]
+                if not image_files:
+                    raise FileNotFoundError("No image files in directory")
+                selected_image = random.choice(image_files)
+                src = Image.open(os.path.join(mob_path, selected_image)).convert("RGBA")
+            else:
+                # It's a single image
+                src = Image.open(f"{mob_path}.png").convert("RGBA")
         except FileNotFoundError:
             # fallback to text if image missing
             return await chan.send(f"A wild **{mob}** appeared! (no image found)")
