@@ -49,6 +49,14 @@ COLOR_MAP = {
     "purple": discord.Color.purple(),
     "red":    discord.Color.red(),
 }
+SWORDS = {
+    None:0,
+    "wood":1,
+    "stone":2,
+    "iron":3,
+    "gold":4,
+    "diamond":5
+    }
 # List of your mob names, matching files in assets/ (e.g. assets/Zombie.png) -----------------------------------------------------------------------------------------------------------
 MOBS = {"Zombie":{"rarity":1,"hostile":True},
         "Enderman":{"rarity":3,"hostile":True},
@@ -181,7 +189,30 @@ async def daily_level_decay():
                         await member.add_roles(new_role, reason="Daily level decay")
 
         # loop back around for the next midnight
+async def safe_dm(user: discord.User, content: str, *, retry: int = 3):
+    """
+    Send user a DM, reusing their DMChannel and retrying on the 40003 error.
+    Returns True on success, False on permanent failure.
+    """
+    # 1) Get or create the DM channel
+    dm = user.dm_channel
+    if dm is None:
+        dm = await user.create_dm()
 
+    # 2) Attempt to send, with retries if rate-limited
+    for attempt in range(retry):
+        try:
+            await dm.send(content)
+            return True
+        except discord.HTTPException as e:
+            # 40003 = opening DMs too fast
+            if e.code == 40003 and attempt < retry - 1:
+                await asyncio.sleep(1 + attempt)  # back-off
+                continue
+            # any other error or no more retries
+            break
+
+    return False
 async def init_db():
     """Create a connection pool and ensure the hi_counts table exists."""
     global db_pool
@@ -225,6 +256,22 @@ async def linkyt(ctx, *, channel_name: str):
         )
 
     # DM them the code
+
+    sent = await safe_dm(
+    ctx.author,
+    f"🔗 **YouTube Link Code** 🔗\n"
+    f"Channel: **{channel_name}**\n"
+    f"Your code is: `{code}`\n\n"
+    "Please type `!link <code>` in one of my livestreams within 3 hours to complete linking."
+        
+    )
+    if sent:
+        await ctx.send(f"{ctx.author.mention}, check your DMs for the code!")
+    else:
+        await ctx.send(
+            f"{ctx.author.mention}, I couldn’t DM you right now—please try again later."
+        )
+
     try:
         await ctx.author.send(
             f"🔗 **YouTube Link Code** 🔗\n"
@@ -235,9 +282,7 @@ async def linkyt(ctx, *, channel_name: str):
         await ctx.send(f"{ctx.author.mention}, I’ve DMed you your linking code!")
     except discord.Forbidden:
         await ctx.send(
-            f"{ctx.author.mention} I couldn’t DM you—"
-            " please enable DMs from server members and try again (Content and social -> Social Permissions -> Direct Messages) You can turn it back off after."
-        )
+            f"{ctx.author.mention} I couldn’t DM you—please enable DMs from server members and try again (Content and social -> Social Permissions -> Direct Messages) You can turn it back off after.")
 
 
 # IDs of channels where !yt is permitted
@@ -423,6 +468,37 @@ async def on_message(message):
                 rarity = MOBS[mob_name]["rarity"]
                 rar_info = RARITIES[rarity]
                 reward  = rar_info["emeralds"]
+                swords = await conn.fetch(
+                    """
+                    SELECT tier, uses_left
+                    FROM tools
+                    WHERE user_id = $1
+                    AND tool_name = 'sword'
+                    AND uses_left > 0
+                    """,
+                    user_id
+                )
+                owned_tiers = {r["tier"] for r in swords}
+                best_tier = None
+                for tier in reversed(TIER_ORDER):
+                    if tier in owned_tiers:
+                        best_tier = tier
+                        break
+                
+                num = SWORDS[best_tier]
+                reward += num
+                await conn.execute(
+                    """
+                    UPDATE tools
+                    SET uses_left = uses_left - 1
+                    WHERE user_id = $1
+                    AND tool_name = 'sword'
+                    AND tier = $2
+                    AND uses_left > 0
+                    """,
+                    user_id, best_tier
+                )
+
                 await conn.execute(
                     "UPDATE accountinfo SET emeralds = emeralds + $1 WHERE discord_id = $2",
                     reward, message.author.id
@@ -435,6 +511,37 @@ async def on_message(message):
                 rarity = MOBS[mob_name]["rarity"]
                 rar_info = RARITIES[rarity]
                 reward  = rar_info["emeralds"]
+
+                swords = await conn.fetch(
+                    """
+                    SELECT tier, uses_left
+                    FROM tools
+                    WHERE user_id = $1
+                    AND tool_name = 'sword'
+                    AND uses_left > 0
+                    """,
+                    user_id
+                )
+                owned_tiers = {r["tier"] for r in swords}
+                best_tier = None
+                for tier in reversed(TIER_ORDER):
+                    if tier in owned_tiers:
+                        best_tier = tier
+                        break
+                
+                num = SWORDS[best_tier]
+                reward += num
+                await conn.execute(
+                    """
+                    UPDATE tools
+                    SET uses_left = uses_left - 1
+                    WHERE user_id = $1
+                    AND tool_name = 'sword'
+                    AND tier = $2
+                    AND uses_left > 0
+                    """,
+                    user_id, best_tier
+                )
                 await conn.execute(
                     "UPDATE accountinfo SET emeralds = emeralds + $1 WHERE discord_id = $2",
                     reward, message.author.id
@@ -888,9 +995,40 @@ async def sacrifice(ctx, *, mob_name: str):
             "SELECT count FROM barn WHERE user_id=$1 AND mob_name=$2",
             user_id, key
         ) or 0
+
         if have < 1:
             return await ctx.send(f"❌ You have no **{key}** to sacrifice.")
         # remove one
+        swords = await conn.fetch(
+            """
+            SELECT tier, uses_left
+              FROM tools
+             WHERE user_id = $1
+               AND tool_name = 'sword'
+               AND uses_left > 0
+            """,
+            user_id
+        )
+        owned_tiers = {r["tier"] for r in swords}
+        best_tier = None
+        for tier in reversed(TIER_ORDER):
+            if tier in owned_tiers:
+                best_tier = tier
+                break
+        
+        num = SWORDS[best_tier]
+        reward += num
+        await conn.execute(
+            """
+            UPDATE tools
+               SET uses_left = uses_left - 1
+             WHERE user_id = $1
+               AND tool_name = 'sword'
+               AND tier = $2
+               AND uses_left > 0
+            """,
+            user_id, best_tier
+        )
         if have > 1:
             await conn.execute(
                 "UPDATE barn SET count = count - 1 WHERE user_id=$1 AND mob_name=$2",
@@ -948,7 +1086,17 @@ async def chop(ctx):
             "UPDATE players SET wood = wood + $1 WHERE user_id = $2;",
             num, user_id
         )
-
+        await conn.execute(
+            """
+            UPDATE tools
+               SET uses_left = uses_left - 1
+             WHERE user_id = $1
+               AND tool_name = 'axe'
+               AND tier = $2
+               AND uses_left > 0
+            """,
+            user_id, best_tier
+        )
         # fetch the updated wood count
         row = await conn.fetchrow(
             "SELECT wood FROM players WHERE user_id = $1;",
