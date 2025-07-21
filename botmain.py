@@ -51,11 +51,11 @@ COLOR_MAP = {
 }
 SWORDS = {
     None:0,
-    "wood":1,
-    "stone":2,
-    "iron":3,
-    "gold":4,
-    "diamond":5
+    "wood":0,
+    "stone":0,
+    "iron":1,
+    "gold":2,
+    "diamond":4
     }
 # List of your mob names, matching files in assets/ (e.g. assets/Zombie.png) -----------------------------------------------------------------------------------------------------------
 MOBS = {"Zombie":{"rarity":1,"hostile":True},
@@ -668,8 +668,6 @@ CRAFT_RECIPES = {
     ("fishing_rod", "gold"):  (3,    0,      None,          10),
     ("fishing_rod", "diamond"):(3,   0,      None,          10),
 
-    ("sword",     "wood"):    (4,    0,      None, 3),
-    ("sword",     "stone"):   (1,    2,      "cobblestone", 3),
     ("sword",     "iron"):    (1,    2,      "iron",        3),
     ("sword",     "gold"):    (1,    2,      "gold",        3),
     ("sword",     "diamond"): (1,    2,      "diamond",     3),
