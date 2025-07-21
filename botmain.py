@@ -10,6 +10,11 @@ from PIL import Image
 import io
 from datetime import datetime,timedelta
 
+chat_xp_cd = commands.CooldownMapping.from_cooldown(
+    2,                # max tokens
+    1800.0,           # per 1800 seconds (30m)
+    commands.BucketType.user
+)
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
@@ -70,8 +75,30 @@ MOBS = {"Zombie":{"rarity":1,"hostile":True},
         "Sheep":{"rarity":1,"hostile":False}        
         }
 
+
+# cumulative exp required for each level
+LEVEL_EXP = {
+    1:   7,    2:  16,   3:  27,   4:  40,   5:   55,
+    6:  72,    7:  91,   8: 112,   9: 135,  10:  160,
+    11: 187,   12: 216,  13: 247,  14: 280,  15:  315,
+    16: 352,   17: 394,  18: 441,  19: 493,  20:  550,
+    21: 612,   22: 679,  23: 751,  24: 828,  25:  910,
+    26: 997,   27:1089,  28:1186, 29:1288, 30: 1395,
+    31:1507,   32:1628,  33:1758, 34:1897, 35: 2045,
+    36:2202,   37:2368,  38:2543, 39:2727, 40: 2920,
+    41:3122,   42:3333,  43:3553, 44:3782, 45: 4020,
+    46:4267,   47:4523,  48:4788, 49:5062, 50: 5345,
+    51:5637,   52:5938,  53:6248, 54:6567, 55: 6895,
+    56:7232,   57:7578,  58:7933, 59:8297
+}
+
+# which levels should get roles
+MILESTONE_ROLES = [10,20,30,40,50]
+
+
 # We'll hold an asyncpg pool here
 db_pool: asyncpg.Pool = None
+
 
 async def init_db():
     """Create a connection pool and ensure the hi_counts table exists."""
@@ -116,7 +143,51 @@ async def ensure_player(user_id):
             "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
             user_id
         )
+ROLE_NAMES = {
+    10:"Iron",
+    20:"Gold",
+    30:"Diamond",
+    40:"Netherite",
+    50:"Bedrock"
+}
+def get_level_from_exp(exp: int) -> int:
+    # find the highest level whose threshold is <= exp
+    lvl = 0
+    for level, req in LEVEL_EXP.items():
+        if exp >= req and level > lvl:
+            lvl = level
+    return lvl
+# 2exp for chat every half hour (100/day), streams = 1exp every 2 minutes (60-150)/day, shop 1 emerald = 1 exp
+async def gain_exp(user_id,exp_gain,ctx):
+    async with db_pool.acquire() as conn:
+        # 1) Fetch old exp
+        old_exp = await conn.fetchval(
+            "SELECT exp FROM accountinfo WHERE discord_id = $1", user_id
+        ) or 0
 
+        # 2) Compute new exp and update
+        new_exp = old_exp + exp_gain
+        await conn.execute(
+            "UPDATE accountinfo SET exp = $1 WHERE discord_id = $2", new_exp, user_id
+        )
+
+        # 3) Check for level‐up
+        old_lvl = get_level_from_exp(old_exp)
+        new_lvl = get_level_from_exp(new_exp)
+
+        if new_lvl > old_lvl:
+            guild = ctx.guild  # or message.guild in on_message
+            member = guild.get_member(user_id)
+            # for each milestone passed, assign its role
+            for lvl in MILESTONE_ROLES:
+                if old_lvl < lvl <= new_lvl:
+                    role = discord.utils.get(guild.roles, name=ROLE_NAMES[lvl])
+                    if role and member:
+                        await member.add_roles(role, reason="Leveled up")
+            # you can also announce:
+            await ctx.send(
+                f"🎉 {member.mention} leveled up to **Level {new_lvl}**!"
+            )    
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -132,6 +203,10 @@ async def on_message(message):
             """,
             message.author.id
         )
+    bucket = chat_xp_cd.get_bucket(message)
+    if bucket.update_rate_limit() is None:
+
+        gain_exp(message.author.id, 1,message)
     # 0) Try to capture any active spawn in this channel
     name = message.content.strip().lower()
     now = datetime.utcnow()
@@ -342,6 +417,56 @@ async def craft_error(ctx, error):
         return await ctx.send("❌ Usage: `!craft <tool> [tier]`")
     raise error
 
+@bot.command(name="exp", aliases=["experience", "level"])
+async def exp_cmd(ctx):
+    """Show your current level and progress toward the next level."""
+    user_id = ctx.author.id
+
+    # 1) Fetch their total exp from accountinfo
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT exp FROM accountinfo WHERE discord_id = $1",
+            user_id
+        )
+    total_exp = row["exp"] if row else 0
+
+    # 2) Compute current & next levels
+    current_level = get_level_from_exp(total_exp)
+    max_level     = max(LEVEL_EXP.keys())
+
+    if current_level < max_level:
+        next_level = current_level + 1
+        req_current = LEVEL_EXP.get(current_level, 0)
+        req_next    = LEVEL_EXP[next_level]
+        exp_into    = total_exp - req_current
+        exp_needed  = req_next - total_exp
+        # progress percentage
+        pct = int(exp_into / (req_next - req_current) * 100)
+    else:
+        next_level = None
+
+    # 3) Build an embed
+    embed = discord.Embed(
+        title=f"{ctx.author.display_name}'s Progress",
+        color=discord.Color.gold()
+    )
+    embed.add_field(name="🎖️ Level", value=str(current_level), inline=True)
+    embed.add_field(name="💯 Total EXP", value=str(total_exp), inline=True)
+
+    if next_level:
+        embed.add_field(
+            name=f"➡️ EXP to Level {next_level}",
+            value=f"{exp_needed} EXP ({pct}% there)",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="🏆 Max Level",
+            value="You have reached the highest level!",
+            inline=False
+        )
+
+    await ctx.send(embed=embed)
 @bot.command(name="sacrifice")
 async def sacrifice(ctx, *, mob_name: str):
     """
