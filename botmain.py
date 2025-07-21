@@ -1587,7 +1587,7 @@ async def watch_spawn_expiry(spawn_id, channel_id, message_id, mob_name, expires
             pass
 
         # Announce the escape
-        await channel.send(f"😢 The wild **{mob_name}** ran away…")
+        await channel.send(f"You let the **{mob_name}** escape, now it must fend for itsself, poor **{mob_name}**")
 
 async def spawn_mob_loop():
     await bot.wait_until_ready()
