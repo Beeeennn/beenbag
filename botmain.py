@@ -1116,7 +1116,7 @@ async def sacrifice(ctx, *, mob_name: str):
 
     async with db_pool.acquire() as conn:
         # check barn
-        rec = await conn.fetchval(
+        rec = await conn.fetchrow(
             """
             SELECT count, is_golden
               FROM barn
