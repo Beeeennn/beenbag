@@ -1362,6 +1362,7 @@ async def mine(ctx):
         )
 
         if not pickaxes:
+            ctx.command.reset_cooldown(ctx)
             return await ctx.send(
                 "❌ You need a pickaxe with at least 1 use to mine! Craft one with `!craft pickaxe wood`."
             )
