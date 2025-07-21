@@ -158,36 +158,32 @@ def get_level_from_exp(exp: int) -> int:
             lvl = level
     return lvl
 # 2exp for chat every half hour (100/day), streams = 1exp every 2 minutes (60-150)/day, shop 1 emerald = 1 exp
-async def gain_exp(user_id,exp_gain,ctx):
+async def gain_exp(user_id, exp_gain, message):
     async with db_pool.acquire() as conn:
-        # 1) Fetch old exp
         old_exp = await conn.fetchval(
             "SELECT experience FROM accountinfo WHERE discord_id = $1", user_id
         ) or 0
-
-        # 2) Compute new exp and update
         new_exp = old_exp + exp_gain
         await conn.execute(
-            "UPDATE accountinfo SET experience = $1 WHERE discord_id = $2", new_exp, user_id
+            "UPDATE accountinfo SET experience = $1 WHERE discord_id = $2",
+            new_exp, user_id
         )
 
-        # 3) Check for level‐up
-        old_lvl = get_level_from_exp(old_exp)
-        new_lvl = get_level_from_exp(new_exp)
-        logging.info(f"{old_exp} -> {new_exp}")
-        if new_lvl > old_lvl:
-            guild = ctx.guild  # or message.guild in on_message
-            member = guild.get_member(user_id)
-            # for each milestone passed, assign its role
-            for lvl in MILESTONE_ROLES:
-                if old_lvl < lvl <= new_lvl:
-                    role = discord.utils.get(guild.roles, name=ROLE_NAMES[lvl])
-                    if role and member:
-                        await member.add_roles(role, reason="Leveled up")
-            # you can also announce:
-            await ctx.send(
-                f"🎉 {member.mention} leveled up to **Level {new_lvl}**!"
-            )    
+    old_lvl = get_level_from_exp(old_exp)
+    new_lvl = get_level_from_exp(new_exp)
+    logging.info(f"{old_exp} -> {new_exp}")
+
+    if new_lvl > old_lvl:
+        member = message.author
+        guild  = message.guild
+        for lvl in MILESTONE_ROLES:
+            if old_lvl < lvl <= new_lvl:
+                role = discord.utils.get(guild.roles, name=ROLE_NAMES[lvl])
+                if role:
+                    await member.add_roles(role, reason="Leveled up")
+        await message.channel.send(
+            f"🎉 {member.mention} leveled up to **Level {new_lvl}**!"
+        )
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -208,7 +204,7 @@ async def on_message(message):
     can_gain = bucket.update_rate_limit() is None
     if can_gain:
         logging.info(f"Awarded 1 XP to {message.author}")
-        gain_exp(user_id, 1,message)
+        await gain_exp(user_id, 1,message)
         
     # 0) Try to capture any active spawn in this channel
     name = message.content.strip().lower()
