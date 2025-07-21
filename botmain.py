@@ -91,6 +91,22 @@ MOBS = {"Zombie":{"rarity":1,"hostile":True},
         "Tropical Fish":{"rarity":3,"hostile":True},
         "Turtle":{"rarity":1,"hostile":False},
         "Wolf":{"rarity":1,"hostile":False},
+        "Cat":{"rarity":1,"hostile":False},
+        "Allay":{"rarity":4,"hostile":False},
+        "Bat":{"rarity":2,"hostile":True},
+        "Mule":{"rarity":1,"hostile":False},
+        "Skeleton Horse":{"rarity":5,"hostile":True},
+        "Sniffer":{"rarity":5,"hostile":False},
+        "Snow Golem":{"rarity":4,"hostile":True},
+        "Tadpole":{"rarity":1,"hostile":False},
+        "Bee":{"rarity":1,"hostile":False},
+        "Cave Spider":{"rarity":1,"hostile":True},
+        "Drowned":{"rarity":1,"hostile":True},
+        "Iron Golem":{"rarity":4,"hostile":True},
+        "Piglin":{"rarity":2,"hostile":True},
+        "Spider":{"rarity":1,"hostile":True},
+        "Zombified Piglin":{"rarity":1,"hostile":True},
+        "Sea Pickle":{"rarity":5,"hostile":False}
         }
 
 # Define an ordering for tiers so we can pick the best one
