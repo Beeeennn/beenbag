@@ -646,6 +646,69 @@ async def exp_cmd(ctx):
         )
 
     await ctx.send(embed=embed)
+@bot.command(name="leaderboard", aliases=["lb"])
+async def leaderboard(ctx):
+    """Show the top 10 users by overall EXP, plus your own rank."""
+    user_id = ctx.author.id
+
+    async with db_pool.acquire() as conn:
+        # 1) Top 10 overall EXP
+        top_rows = await conn.fetch(
+            """
+            SELECT discord_id, overallexp
+              FROM accountinfo
+             ORDER BY overallexp DESC
+             LIMIT 10
+            """
+        )
+        # 2) Get invoking user’s total EXP
+        user_row = await conn.fetchrow(
+            "SELECT overallexp FROM accountinfo WHERE discord_id = $1",
+            user_id
+        )
+        user_exp = user_row["overallexp"] if user_row else 0
+
+        # 3) Compute their rank (1-based)
+        higher_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM accountinfo WHERE overallexp > $1",
+            user_exp
+        )
+        user_rank = higher_count + 1
+
+    # 4) Build the embed
+    embed = discord.Embed(
+        title="🌟 Overall EXP Leaderboard",
+        color=discord.Color.gold()
+    )
+
+    lines = []
+    pos = 1
+    for record in top_rows:
+        uid  = record["discord_id"]
+        exp  = record["overallexp"]
+        # Try to get a guild Member for nickname, else fetch a User
+        member = ctx.guild.get_member(uid)
+        if member:
+            name = member.display_name
+        else:
+            try:
+                user = await bot.fetch_user(uid)
+                name = f"{user.name}#{user.discriminator}"
+            except:
+                name = f"<Unknown {uid}>"
+        lines.append(f"**#{pos}** {name} — {exp} EXP")
+        pos += 1
+
+    embed.description = "\n".join(lines)
+    # 5) Add your own position
+    embed.add_field(
+        name="Your Position",
+        value=f"#{user_rank} — {user_exp} EXP",
+        inline=False
+    )
+
+    await ctx.send(embed=embed)
+
 @bot.command(name="sacrifice", aliases=["sac", "kill"])
 async def sacrifice(ctx, *, mob_name: str):
     """
