@@ -512,81 +512,135 @@ async def shop(ctx):
         )
     await ctx.send(embed=embed)
 @bot.command(name="buy")
-async def buy(ctx, *, item_name: str):
-    """Purchase an item from the shop by its name."""
+async def buy(ctx, *args):
+    """
+    Purchase one or more of an item.
+    Usage:
+      !buy <item name> [quantity]
+    Examples:
+      !buy Exp\ Bottle 5
+      !buy exp 100
+    """
+    if not args:
+        return await ctx.send("❌ Usage: `!buy <item name> [quantity]`")
+
+    # 1) Parse quantity if last arg is an integer
+    try:
+        qty = int(args[-1])
+        name_parts = args[:-1]
+    except ValueError:
+        qty = 1
+        name_parts = args
+
+    if qty < 1:
+        return await ctx.send("❌ Quantity must be at least 1.")
+
+    raw_name = " ".join(name_parts).strip().lower()
+
+    # allow "exp" shortcut for "Exp Bottle"
+    if raw_name in ("exp", "experience"):
+        lookup_name = "exp bottle"
+    else:
+        lookup_name = raw_name
+
     user_id = ctx.author.id
-    lname   = item_name.strip().lower()
 
     async with db_pool.acquire() as conn:
-        # 1) Lookup the item
-        item = await conn.fetchrow("""
+        # 2) Look up the item
+        item = await conn.fetchrow(
+            """
             SELECT item_id, name, price_emeralds, purchase_limit
               FROM shop_items
              WHERE LOWER(name) = $1
-        """, lname)
+            """,
+            lookup_name
+        )
         if not item:
-            return await ctx.send(f"❌ No shop item named **{item_name}**.")
+            return await ctx.send(f"❌ No shop item named **{raw_name}**.")
 
         item_id      = item["item_id"]
         display_name = item["name"]
-        cost         = item["price_emeralds"]
-        limit        = item["purchase_limit"]
+        cost_each    = item["price_emeralds"]
+        limit        = item["purchase_limit"]  # None = unlimited
 
-        # 2) Check user’s emeralds
+        total_cost = cost_each * qty
+
+        # 3) Check emerald balance
         have = await conn.fetchval(
-            "SELECT emeralds FROM players WHERE user_id = $1", user_id
+            "SELECT emeralds FROM accountinfo WHERE discord_id = $1",
+            user_id
         ) or 0
-        if have < cost:
-            return await ctx.send(f"❌ You need {cost} 💠 but you have only {have}.")
+        if have < total_cost:
+            return await ctx.send(
+                f"❌ You need {total_cost} 💠 but only have {have}."
+            )
 
-        # 3) Enforce daily limit if set
+        # 4) Enforce daily limit (for Exp Bottle only, or any limited item)
         if limit is not None:
             since = datetime.utcnow() - timedelta(hours=24)
-            bought = await conn.fetchval("""
+            bought = await conn.fetchval(
+                """
                 SELECT COUNT(*) FROM purchase_history
                  WHERE user_id = $1
                    AND item_id = $2
                    AND purchased_at > $3
-            """, user_id, item_id, since)
-            if bought >= limit:
+                """,
+                user_id, item_id, since
+            )
+            if bought + qty > limit:
                 return await ctx.send(
-                    f"❌ You’ve already bought {limit}/{limit} **{display_name}** today."
+                    f"❌ You can only buy {limit}/{limit} **{display_name}** per 24 h."
                 )
 
-        # 4) Deduct emeralds & log purchase
+        # 5) Deduct emeralds
         await conn.execute(
-            "UPDATE players SET emeralds = emeralds - $1 WHERE user_id = $2",
-            cost, user_id
+            "UPDATE accountinfo SET emeralds = emeralds - $1 WHERE discord_id = $2",
+            total_cost, user_id
         )
-        await conn.execute(
-            "INSERT INTO purchase_history (user_id, item_id) VALUES ($1,$2)",
-            user_id, item_id
-        )
-        # for trackable uses (e.g. boss tickets), also update shop_purchases
+        # 6) Log each purchase for history
+        for _ in range(qty):
+            await conn.execute(
+                "INSERT INTO purchase_history (user_id, item_id) VALUES ($1,$2)",
+                user_id, item_id
+            )
+        # 7) Update your cumulative purchases (e.g. boss tickets)
         await conn.execute("""
-            INSERT INTO shop_purchases (user_id, item_id, quantity)
-            VALUES ($1,$2,1)
+            INSERT INTO shop_purchases (user_id,item_id,quantity)
+            VALUES ($1,$2,$3)
             ON CONFLICT (user_id,item_id) DO UPDATE
-              SET quantity = shop_purchases.quantity + 1
-        """, user_id, item_id)
+              SET quantity = shop_purchases.quantity + $3
+        """, user_id, item_id, qty)
 
-    # 5) Grant effects
+    # 8) Grant the effect
     if display_name == "Exp Bottle":
-        # 1 exp per bottle
-        await gain_exp(user_id, 1, ctx)
-        await ctx.send(f"✅ You spent {cost} 💠 and gained **1 EXP**!")
+        # award qty EXP at once
+        await gain_exp(user_id, qty, ctx)
+        await ctx.send(f"✅ Spent {total_cost} 💠 for **{qty} EXP**!")
     elif display_name == "Boss Mob Ticket":
-        await ctx.send("✅ You bought a **Boss Mob Ticket**! Use `!use_ticket` to spawn one.")
+        await ctx.send(
+            f"✅ You bought **{qty} Boss Mob Ticket{'s' if qty!=1 else ''}**! "
+            "Use `!use_ticket` to redeem."
+        )
     elif display_name == "Mystery Animal":
-        mob = random.choice([m for m,v in MOBS.items() if not v["hostile"]])
+        got = []
         async with db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO barn (user_id,mob_name,count)
-                VALUES ($1,$2,1)
-                ON CONFLICT (user_id,mob_name) DO UPDATE
-                  SET count = barn.count + 1
-            """, user_id, mob)
-        await ctx.send(f"✅ You opened a pack and got **{mob}**!")
+            for _ in range(qty):
+                mob = random.choice([m for m,v in MOBS.items() if not v["hostile"]])
+                got.append(mob)
+                await conn.execute(
+                    """
+                    INSERT INTO barn (user_id,mob_name,count)
+                    VALUES ($1,$2,1)
+                    ON CONFLICT (user_id,mob_name) DO UPDATE
+                      SET count = barn.count + 1
+                    """, user_id, mob
+                )
+        # summarize what they got
+        summary = {}
+        for m in got:
+            summary[m] = summary.get(m, 0) + 1
+        lines = [f"**{cnt}× {name}**" for name,cnt in summary.items()]
+        await ctx.send(f"✅ Mystery pack delivered:\n" + "\n".join(lines))
     elif display_name == "RICH Role":
         role = discord.utils.get(ctx.guild.roles, name="RICH")
         if role:
@@ -595,7 +649,7 @@ async def buy(ctx, *, item_name: str):
         else:
             await ctx.send("❌ Could not find a `RICH` role on this server.")
     else:
-        await ctx.send(f"✅ You bought **{display_name}**!")
+        await ctx.send(f"✅ You bought **{qty}× {display_name}** for {total_cost} 💠!")
 @bot.command(name="exp", aliases=["experience", "level", "lvl"])
 async def exp_cmd(ctx):
     """Show your current level and progress toward the next level."""
