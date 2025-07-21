@@ -1781,29 +1781,26 @@ def pixelate(img: Image.Image, size: int) -> Image.Image:
     small = img.resize((size, size), resample=Image.NEAREST)
     # blow back up to original dims
     return small.resize(img.size, Image.NEAREST)
-def zoom_frame(src: Image.Image, zoom_frac: float) -> Image.Image:
+def zoom_frame_at(src: Image.Image, zoom_frac: float, center: tuple[float,float]) -> Image.Image:
     """
-    Returns a new Image that is the center zoom_frac×crop of src,
-    scaled back up to src’s full size.
-
-    zoom_frac: 0.0 < f ≤ 1.0, fraction of the original size to show.
-    e.g. 0.1 for 10%, 1.0 for the full image.
+    Crop src to a zoom_frac× window centered at `center` (fractions 0–1),
+    then scale back up to full size.
     """
     w, h = src.size
-    # clamp zoom_frac into (0,1]
     f = max(0.01, min(zoom_frac, 1.0))
+    cw, ch = int(w * f), int(h * f)
 
-    # compute crop size
-    cw = int(w * f)
-    ch = int(h * f)
+    # compute top-left so the window is centered on (cx, cy)
+    cx, cy = center
+    left = int(cx * w - cw / 2)
+    top  = int(cy * h - ch / 2)
+    # clamp to image bounds
+    left = max(0, min(left, w - cw))
+    top  = max(0, min(top, h - ch))
 
-    # center crop
-    left = (w - cw) // 2
-    top  = (h - ch) // 2
     crop = src.crop((left, top, left + cw, top + ch))
+    return crop.resize((w, h), Image.NEAREST)
 
-    # scale back up to full size
-    return crop.resize((w, h), resample=Image.NEAREST)
 async def watch_spawn_expiry(spawn_id, channel_id, message_id, mob_name, expires_at):
     # Sleep until the exact expiry time
     now = datetime.utcnow()
@@ -1844,7 +1841,7 @@ async def spawn_mob_loop():
     max_r = max(rarities)
 
     # weight = (max_r + 1) – rarity  → commons get highest weight
-    weights = [(2**(max_r + 1)) - r for r in rarities]
+    weights = [(4**(max_r + 1-r)) for r in rarities]
     while True:
         try:
             # wait 4–20 minutes
@@ -1868,19 +1865,34 @@ async def spawn_mob_loop():
             except FileNotFoundError:
                 # fallback to text if image missing
                 await chan.send(f"A wild **{mob}** appeared! (no image found)")
-            pix = (random.randint(1, 2) == 1)
-            pix = False
+            pix = (random.randint(1, 4) == 1)
             # send initial 1×1 pixel frame
             frame_sizes = [1, 2, 4, 8, 16, src.size[0]]  # final = full res width
-            zoom_levels = [0.05, 0.2, 0.4, 0.6, 0.8, 1.0]
-            b = io.BytesIO()
-            if pix:
-                pixelate(src, frame_sizes[0]).save(b, format="PNG")
-            else:
-                zoom_frame(src, zoom_levels[0]).save(b, format="PNG")
-            b.seek(0)
-            msg = await chan.send("A mob is appearing, say it's name to catch it", file=discord.File(b, f"spawn.png"))
+            zoom_levels = [0.01, 0.05, 0.1, 0.2, 0.4, 1.0]
 
+
+            if pix:
+                levels     = frame_sizes
+                make_frame = lambda lvl: pixelate(src, lvl)
+            else:
+                levels = zoom_levels
+                # pick one random center, fractions between 0.1 and 0.9 so you’re not
+                # cropping right at the very edge
+                cx = random.uniform(0.1, 0.9)
+                cy = random.uniform(0.1, 0.9)
+                center = (cx, cy)
+
+                # now every frame uses that same center
+                make_frame = lambda lvl: zoom_frame_at(src, lvl, center)
+
+            # send first frame
+            buf = io.BytesIO()
+            make_frame(levels[0]).save(buf, format="PNG")
+            buf.seek(0)
+            msg = await chan.send(
+                "A mob is appearing, say its name to catch it",
+                file=discord.File(buf, "spawn.png")
+            )
             expires = datetime.utcnow() + timedelta(seconds=RARITIES[MOBS[mob]["rarity"]]["stay"])  # give players 5m to catch
             async with db_pool.acquire() as conn:
                 record = await conn.fetchrow(
@@ -1901,21 +1913,14 @@ async def spawn_mob_loop():
                                 expires_at=expires)
             )
                     # step through each larger frame
-            if pix:
-                for size in frame_sizes[1:]:
-                    await asyncio.sleep(10)  # pause between frames
-                    b = io.BytesIO()
-                    pixelate(src, size).save(b, format="PNG")
-                    b.seek(0)
-                    await msg.edit(content="A mob is appearing, say it's name to catch it", attachments=[discord.File(b, f"spawn.png")])
-            else:
-                for size in zoom_levels[1:]:
-                    await asyncio.sleep(10)  # pause between frames
-                    b = io.BytesIO()
-                    zoom_frame(src, size).save(b, format="PNG")
-                    b.seek(0)
-                    await msg.edit(content="A mob is appearing, say it's name to catch it", attachments=[discord.File(b, f"spawn.png")])
-
+            for lvl in levels[1:]:
+                await asyncio.sleep(15)
+                buf = io.BytesIO()
+                make_frame(lvl).save(buf, format="PNG")
+                buf.seek(0)
+                await msg.edit(
+                    content="A mob is appearing, say its name to catch it",
+                    files=[discord.File(buf, "spawn.png")])
         except Exception:
             await asyncio.sleep(60)
 async def start_http_server():
