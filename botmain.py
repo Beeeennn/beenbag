@@ -10,7 +10,8 @@ from PIL import Image
 import io
 from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
-
+import string
+import secrets
 chat_xp_cd = commands.CooldownMapping.from_cooldown(
     2,                # max tokens
     1800.0,           # per 1800 seconds (30m)
@@ -113,6 +114,9 @@ ROLE_NAMES = {
 }
 # We'll hold an asyncpg pool here
 db_pool: asyncpg.Pool = None
+def make_link_code(length: int = 8) -> str:
+    alphabet = string.ascii_uppercase + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 async def daily_level_decay():
     tz = ZoneInfo("Europe/London")
@@ -194,6 +198,46 @@ async def init_db():
 # HTTP endpoints
 async def handle_ping(request):
     return web.Response(text="pong")
+
+@bot.command(name="linkyt")
+async def linkyt(ctx, *, channel_name: str):
+    """
+    Generate a one-time code to link your YouTube channel.
+    Usage: !linkyt <your YouTube channel name>
+    """
+    user_id = ctx.author.id
+    code = make_link_code(8)
+    expires = datetime.utcnow() + timedelta(hours=3)
+
+    # store (or update) in pending_links
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO pending_links
+                (discord_id, yt_channel_name, code, expires_at)
+            VALUES ($1,$2,$3,$4)
+            ON CONFLICT (discord_id) DO UPDATE
+              SET yt_channel_name = EXCLUDED.yt_channel_name,
+                  code            = EXCLUDED.code,
+                  expires_at      = EXCLUDED.expires_at;
+            """,
+            user_id, channel_name.lower(), code, expires
+        )
+
+    # DM them the code
+    try:
+        await ctx.author.send(
+            f"🔗 **YouTube Link Code** 🔗\n"
+            f"Channel: **{channel_name}**\n"
+            f"Your code is: `{code}`\n\n"
+            "Please type `!link <code>` in one of my livestreams within 3 hours to complete linking."
+        )
+        await ctx.send(f"{ctx.author.mention}, I’ve DMed you your linking code!")
+    except discord.Forbidden:
+        await ctx.send(
+            f"{ctx.author.mention} I couldn’t DM you—"
+            " please enable DMs from server members and try again."
+        )
 
 @bot.event
 async def on_ready():
