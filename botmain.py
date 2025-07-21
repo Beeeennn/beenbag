@@ -549,7 +549,7 @@ async def on_message(message):
             # Got it first!
             spawn_id = spawn["spawn_id"]
             mob_name = spawn["mob_name"]
-
+            is_golden = (random.randint(1, 20) == 1)
             # 1) Add to the barn (or sacrifice if full)
             #    First ensure the player/barn rows exist:
             await conn.execute(
@@ -574,6 +574,8 @@ async def on_message(message):
                 rarity = MOBS[mob_name]["rarity"]
                 rar_info = RARITIES[rarity]
                 reward  = rar_info["emeralds"]
+                if is_golden:
+                    reward *= 2
                 swords = await conn.fetch(
                     """
                     SELECT tier, uses_left
@@ -609,7 +611,14 @@ async def on_message(message):
                     "UPDATE accountinfo SET emeralds = emeralds + $1 WHERE discord_id = $2",
                     reward, message.author.id
                 )
-                
+                 # record in sacrifice_history
+                await conn.execute(
+                    """
+                    INSERT INTO sacrifice_history
+                    (discord_id, mob_name, is_golden, rarity)
+                    VALUES ($1,$2,$3,$4)
+                    """,
+                    user_id, mob_name, is_golden, rarity)
                 note = f"sacrificed for {reward} emeralds (barn is full)."
                 
             elif MOBS[mob_name]["hostile"]:
@@ -617,6 +626,8 @@ async def on_message(message):
                 rarity = MOBS[mob_name]["rarity"]
                 rar_info = RARITIES[rarity]
                 reward  = rar_info["emeralds"]
+                if is_golden:
+                    reward *= 2
 
                 swords = await conn.fetch(
                     """
@@ -652,19 +663,29 @@ async def on_message(message):
                     "UPDATE accountinfo SET emeralds = emeralds + $1 WHERE discord_id = $2",
                     reward, message.author.id
                 )
+                # record in sacrifice_history
+                await conn.execute(
+                    """
+                    INSERT INTO sacrifice_history
+                    (discord_id, mob_name, is_golden, rarity)
+                    VALUES ($1,$2,$3,$4)
+                    """,
+                    user_id, mob_name, is_golden, rarity)
                 note = f"this mob is not catchable so it was sacrificed for {reward} emeralds"
                 
             else:
 
+                # insert into barn with the golden flag
                 await conn.execute(
                     """
-                    INSERT INTO barn (user_id, mob_name, count)
-                    VALUES ($1,$2,1)
-                    ON CONFLICT (user_id,mob_name) DO UPDATE
-                      SET count = barn.count + 1
+                    INSERT INTO barn (user_id, mob_name, is_golden, count)
+                    VALUES ($1, $2, $3, 1)
+                    ON CONFLICT (user_id, mob_name, is_golden)
+                    DO UPDATE SET count = barn.count + 1
                     """,
-                    message.author.id, mob_name
+                    message.author.id, mob_name, is_golden
                 )
+
                 note = f"placed in your barn ({occ+1}/{size})."
             # 2) Delete the spawn so no one else can catch it
             await conn.execute(
@@ -679,7 +700,7 @@ async def on_message(message):
 
             # build and send the embed
             embed = discord.Embed(
-                title=f"🏆 {message.author.display_name} caught a {RARITIES[rarity]["name"]} {mob_name}!",
+                title=f"🏆 {message.author.display_name} caught a {'✨ Golden ' if is_golden else ''} {RARITIES[rarity]["name"]} {mob_name}!",
                 description=f"{note}",
                 color=color
             )
@@ -1095,13 +1116,39 @@ async def sacrifice(ctx, *, mob_name: str):
 
     async with db_pool.acquire() as conn:
         # check barn
-        have = await conn.fetchval(
-            "SELECT count FROM barn WHERE user_id=$1 AND mob_name=$2",
+        rec = await conn.fetchval(
+            """
+            SELECT count, is_golden
+              FROM barn
+             WHERE user_id=$1 AND mob_name=$2
+             ORDER BY is_golden DESC
+             LIMIT 1
+            """,
             user_id, key
-        ) or 0
+        )
 
-        if have < 1:
+        if not rec:
             return await ctx.send(f"❌ You have no **{key}** to sacrifice.")
+        have     = rec["count"]
+        is_gold  = rec["is_golden"]
+        if have > 1:
+            await conn.execute(
+                """
+                UPDATE barn
+                   SET count = count - 1
+                 WHERE user_id=$1 AND mob_name=$2 AND is_golden=$3
+                """,
+                user_id, key, is_gold
+            )
+        else:
+            await conn.execute(
+                """
+                DELETE FROM barn
+                 WHERE user_id=$1 AND mob_name=$2 AND is_golden=$3
+                """,
+                user_id, key, is_gold
+            )
+
         # remove one
         swords = await conn.fetch(
             """
@@ -1119,7 +1166,8 @@ async def sacrifice(ctx, *, mob_name: str):
             if tier in owned_tiers:
                 best_tier = tier
                 break
-        
+        if is_gold:
+            reward*=2
         num = SWORDS[best_tier]
         reward += num
         await conn.execute(
@@ -1148,16 +1196,75 @@ async def sacrifice(ctx, *, mob_name: str):
             "UPDATE accountinfo SET emeralds = emeralds + $1 WHERE discord_id = $2",
             reward, user_id
         )
+        # record in sacrifice_history
+        await conn.execute(
+            """
+            INSERT INTO sacrifice_history
+               (discord_id, mob_name, is_golden, rarity)
+            VALUES ($1,$2,$3,$4)
+            """,
+            user_id, key, is_gold, rarity
+        )
 
     # send embed
     embed = discord.Embed(
-        title=f"🗡️ {ctx.author.display_name} sacrificed a {key}",
+        title=f"🗡️ {ctx.author.display_name} sacrificed a {'✨ Golden ' if is_gold else ''} {key}",
         description=f"You gained 💠 **{reward} Emerald{'s' if reward!=1 else ''}**!",
         color=color
     )
     embed.add_field(name="Rarity", value=rar_info["name"].title(), inline=True)
+    if is_gold:
+        embed.set_footer(text="Golden mobs drop double emeralds!")
     await ctx.send(embed=embed)
 AXEWOOD = {None:1,"wood":2,"stone":2,"iron":3,"gold":3,"diamond":4}
+
+
+@bot.command(name="bestiary",aliases =["bs","bes"])
+async def bestiary(ctx):
+    """Show all mobs you’ve sacrificed, split by Golden vs. normal and by rarity."""
+    user_id = ctx.author.id
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT mob_name, is_golden, rarity, COUNT(*) AS cnt
+              FROM sacrifice_history
+             WHERE discord_id = $1
+             GROUP BY is_golden, rarity, mob_name
+             ORDER BY is_golden DESC, rarity ASC, mob_name
+            """,
+            user_id
+        )
+
+    # organize: data[gold_flag][rarity] = [(mob, cnt), ...]
+    data = {True: {}, False: {}}
+    for r in rows:
+        g = r["is_golden"]
+        rar = r["rarity"]
+        data[g].setdefault(rar, []).append((r["mob_name"], r["cnt"]))
+
+    embed = discord.Embed(
+        title=f"{ctx.author.display_name}'s Sacrifice Bestiary",
+        color=discord.Color.teal()
+    )
+
+    def add_section(gold_flag, title):
+        section = data[gold_flag]
+        if not section:
+            return
+        # header for this group
+        embed.add_field(name=title, value="​", inline=False)
+        for rar in sorted(section):
+            info = RARITIES[rar]
+            label = f"{info['name'].title()} [{rar}]"
+            lines = [f"• **{name}** × {cnt}" for name, cnt in section[rar]]
+            embed.add_field(name=label, value="\n".join(lines), inline=False)
+
+    # golden first
+    add_section(True, "✨ Golden Sacrificed Mobs ✨")
+    # then normal
+    add_section(False, "Sacrificed Mobs")
+
+    await ctx.send(embed=embed)
 @bot.command(name="chop")
 @commands.cooldown(1, 120, commands.BucketType.user)  # 1 use per 240s per user
 async def chop(ctx):
@@ -1527,53 +1634,66 @@ async def inv(ctx):
 
 @bot.command(name="barn")
 async def barn(ctx):
-    """Show your barn: mobs broken out by rarity, with colored embed."""
+    """Show your barn split by Golden vs. normal and by rarity."""
     user_id = ctx.author.id
 
+    # 1) Fetch barn entries
     async with db_pool.acquire() as conn:
-        # fetch barn contents
         rows = await conn.fetch(
-            "SELECT mob_name, count FROM barn WHERE user_id=$1 AND count>0",
+            """
+            SELECT mob_name, is_golden, count
+              FROM barn
+             WHERE user_id = $1 AND count > 0
+             ORDER BY is_golden DESC, mob_name
+            """,
             user_id
         )
-        # fetch current size & next upgrade (if you want to include it)
-        size = await conn.fetchval(
-            "SELECT barn_size FROM players WHERE user_id=$1",
-            user_id
-        ) or 5
+        # fetch barn size & next upgrade cost if you still want those
+        size_row = await conn.fetchrow(
+            "SELECT barn_size FROM players WHERE user_id = $1", user_id
+        )
+        size = size_row["barn_size"] if size_row else 5
 
-    if not rows:
-        return await ctx.send("Your barn is empty, go catch mobs in the plains!")
+    # 2) Organize by gold flag → rarity → list of (mob, count)
+    data = {True: {}, False: {}}
+    for r in rows:
+        g    = r["is_golden"]
+        name = r["mob_name"]
+        cnt  = r["count"]
+        rar  = MOBS[name]["rarity"]
+        data[g].setdefault(rar, []).append((name, cnt))
 
-    # organize by rarity
-    by_rarity = {}
-    for r in range(1, 6):
-        by_rarity[r] = []
-
-    for record in rows:
-        name  = record["mob_name"]
-        cnt   = record["count"]
-        rar   = MOBS[name]["rarity"]
-        by_rarity[rar].append(f"• **{name}** × {cnt}")
-
-    # pick the highest rarity present for the embed color
-    highest = max((r for r, lst in by_rarity.items() if lst), default=1)
-    embed_color = COLOR_MAP[ RARITIES[highest]["colour"] ]
-
+    # 3) Build embed
     embed = discord.Embed(
         title=f"{ctx.author.display_name}'s Barn ({size} slots)",
-        color=embed_color
+        color=discord.Color.green()
     )
     embed.set_footer(text="Use !upbarn to expand your barn.")
 
-    # Add a field per rarity that actually has mobs
-    for rar, lines in by_rarity.items():
-        if not lines:
-            continue
-        info = RARITIES[rar]
-        # e.g. “Common (1)”
-        field_name = f"{info['name'].title()} [{rar}]"
-        embed.add_field(name=field_name, value="\n".join(lines), inline=False)
+    def add_section(is_gold: bool, header: str):
+        section = data[is_gold]
+        if not section:
+            return
+        # Section header
+        embed.add_field(name=header, value="​", inline=False)
+        # For each rarity in ascending order
+        for rar in sorted(section):
+            info = RARITIES[rar]
+            # e.g. “Common [1]”
+            field_name = f"{info['name'].title()} [{rar}]"
+            lines = [
+                f"• **{n}** × {c}"
+                for n, c in section[rar]
+            ]
+            embed.add_field(
+                name=field_name,
+                value="\n".join(lines),
+                inline=False
+            )
+
+    # 4) Golden first, then normal
+    add_section(True,  "✨ Golden Mobs ✨")
+    add_section(False, "Mobs")
 
     await ctx.send(embed=embed)
     
