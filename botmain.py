@@ -428,7 +428,7 @@ async def exp_cmd(ctx):
             "SELECT experience FROM accountinfo WHERE discord_id = $1",
             user_id
         )
-    total_exp = row["exp"] if row else 0
+    total_exp = row["experience"] if row else 0
 
     # 2) Compute current & next levels
     current_level = get_level_from_exp(total_exp)
