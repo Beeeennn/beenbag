@@ -295,7 +295,7 @@ async def yt(ctx, member: discord.Member = None):
     embed.add_field(name="Channel Name", value=name or "–", inline=True)
     embed.add_field(name="Link", value=f"[Watch on YouTube]({url})", inline=True)
     await ctx.send(embed=embed)
-    
+
 @bot.event
 async def on_ready():
     logging.info(f"Bot ready as {bot.user}")
@@ -1199,7 +1199,7 @@ async def inv(ctx):
         tools = await conn.fetch("""
             SELECT tool_name, tier, uses_left
             FROM tools
-            WHERE user_id = $1                                 
+            WHERE user_id = $1 AND uses_left > 0                                 
                                  """,user_id)
         
         emerald_row = await conn.fetchrow("""
