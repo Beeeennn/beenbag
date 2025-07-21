@@ -417,7 +417,7 @@ async def craft_error(ctx, error):
         return await ctx.send("❌ Usage: `!craft <tool> [tier]`")
     raise error
 
-@bot.command(name="exp", aliases=["experience", "level"])
+@bot.command(name="exp", aliases=["experience", "level", "lvl"])
 async def exp_cmd(ctx):
     """Show your current level and progress toward the next level."""
     user_id = ctx.author.id
@@ -467,7 +467,7 @@ async def exp_cmd(ctx):
         )
 
     await ctx.send(embed=embed)
-@bot.command(name="sacrifice")
+@bot.command(name="sacrifice", aliases=["sac", "kill"])
 async def sacrifice(ctx, *, mob_name: str):
     """
     Sacrifice one mob from your barn for emeralds based on rarity.
