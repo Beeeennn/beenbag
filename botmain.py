@@ -9,6 +9,7 @@ from aiohttp import web
 from PIL import Image
 import io
 from datetime import datetime,timedelta
+from zoneinfo import ZoneInfo
 
 chat_xp_cd = commands.CooldownMapping.from_cooldown(
     2,                # max tokens
@@ -95,10 +96,79 @@ LEVEL_EXP = {
 # which levels should get roles
 MILESTONE_ROLES = [10,20,30,40,50]
 
-
+ROLE_NAMES = {
+    10:"Iron",
+    20:"Gold",
+    30:"Diamond",
+    40:"Netherite",
+    50:"Bedrock"
+}
 # We'll hold an asyncpg pool here
 db_pool: asyncpg.Pool = None
 
+async def daily_level_decay():
+    tz = ZoneInfo("Europe/London")
+    await bot.wait_until_ready()
+    while True:
+        # compute seconds until next midnight in London
+        now = datetime.now(tz)
+        tomorrow = (now + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        delay = (tomorrow - now).total_seconds()
+        await asyncio.sleep(delay)
+
+        # 1) Demote everyone by one level
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch("SELECT discord_id, exp FROM accountinfo")
+        for record in rows:
+            user_id = record["discord_id"]
+            old_exp = record["exp"]
+            old_lvl = get_level_from_exp(old_exp)
+            if old_lvl <= 0:
+                continue  # they’re already at level 0
+
+            # compute new exp so they drop exactly one level
+            new_lvl = old_lvl - 1
+            if new_lvl > 0:
+                new_exp = LEVEL_EXP[new_lvl] - 1
+            else:
+                new_exp = old_exp
+
+            # write it back
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE accountinfo SET exp = $1 WHERE discord_id = $2",
+                    new_exp, user_id
+                )
+
+            # 2) Fix up roles in every guild we share
+            for guild in bot.guilds:
+                member = guild.get_member(user_id)
+                if not member:
+                    continue
+                # remove old milestone role if they had one
+                if old_lvl in MILESTONE_ROLES:
+                    old_role = discord.utils.get(
+                        guild.roles, name=ROLE_NAMES[old_lvl]
+                    )
+                    if old_role in member.roles:
+                        await member.remove_roles(old_role, reason="Daily level decay")
+                    if old_lvl > 11:
+                        new_role = discord.utils.get(
+                        guild.roles, name=ROLE_NAMES[old_lvl-10]
+                    )
+                        await member.add_roles(new_role, reason="Daily level decay")
+
+                # add new milestone role if needed
+                if new_lvl in MILESTONE_ROLES:
+                    new_role = discord.utils.get(
+                        guild.roles, name=ROLE_NAMES[new_lvl]
+                    )
+                    if new_role and new_role not in member.roles:
+                        await member.add_roles(new_role, reason="Daily level decay")
+
+        # loop back around for the next midnight
 
 async def init_db():
     """Create a connection pool and ensure the hi_counts table exists."""
@@ -113,10 +183,6 @@ async def init_db():
         """)
     logging.info("Postgres connected and hi_counts table ready")
 
-@bot.event
-async def on_ready():
-    logging.info(f"Bot ready as {bot.user}")
-
 # HTTP endpoints
 async def handle_ping(request):
     return web.Response(text="pong")
@@ -124,7 +190,8 @@ async def handle_ping(request):
 @bot.event
 async def on_ready():
     logging.info(f"Bot ready as {bot.user}")
-
+    if not hasattr(bot, "_decay_task"):
+        bot._decay_task = bot.loop.create_task(daily_level_decay())
     # Only schedule it once
     if not hasattr(bot, "_spawn_task"):
         bot._spawn_task = bot.loop.create_task(spawn_mob_loop())
@@ -143,13 +210,7 @@ async def ensure_player(user_id):
             "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
             user_id
         )
-ROLE_NAMES = {
-    10:"Iron",
-    20:"Gold",
-    30:"Diamond",
-    40:"Netherite",
-    50:"Bedrock"
-}
+
 def get_level_from_exp(exp: int) -> int:
     # find the highest level whose threshold is <= exp
     lvl = 0
@@ -179,6 +240,10 @@ async def gain_exp(user_id, exp_gain, message):
         for lvl in MILESTONE_ROLES:
             if old_lvl < lvl <= new_lvl:
                 role = discord.utils.get(guild.roles, name=ROLE_NAMES[lvl])
+                if lvl-10 in ROLE_NAMES:
+                    old_role = discord.utils.get(guild.roles, name=ROLE_NAMES[lvl-10])
+                    if old_role in member.roles:
+                        await member.remove_roles(old_role, reason ="Leveled up")
                 if role:
                     await member.add_roles(role, reason="Leveled up")
         await message.channel.send(
