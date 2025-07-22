@@ -1016,9 +1016,14 @@ async def buy(ctx, *args):
         )
     elif display_name == "Mystery Animal":
         got = []
+        rarities = [MOBS[name]["rarity"] for name in mob_names]
+        max_r = max(rarities)
+        weights = [(2**(max_r + 1-r)) for r in rarities]
         async with db_pool.acquire() as conn:
             for _ in range(qty):
-                mob = random.choice([m for m,v in MOBS.items() if not v["hostile"]])
+                    
+                mobs = ([m for m,v in MOBS.items() if not v["hostile"]])
+                mob = random.choices(mobs, weights=weights, k=1)[0]
                 got.append(mob)
                 await conn.execute(
                     """
