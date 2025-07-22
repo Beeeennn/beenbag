@@ -160,6 +160,8 @@ LEVEL_EXP = {
 
 # which levels should get roles
 MILESTONE_ROLES = [10,20,30,40,50]
+SPAWN_CHANNEL_IDS = [1396534538498343002, 1396534603854123088,1396534658656763974,1396534732682035250]
+REACT_CHANNELS = [1396534538498343002, 1396534603854123088,1396534658656763974,1396534732682035250,1396194783713824800]
 
 ROLE_NAMES = {
     10:"Iron",
@@ -560,11 +562,17 @@ async def on_message(message):
     if message.author.bot:
         return
     # auto–eye-roll on every message from that specific user
-    if message.author.id == 1381277906017189898:
-        try:
-            await message.add_reaction("🙄")
-        except Exception:
-            pass  # ignore rate-limit or other errors
+    if message.channel.id in REACT_CHANNELS:
+        if message.author.id == 1381277906017189898:
+            try:
+                await message.add_reaction("🙄")
+            except Exception:
+                pass  # ignore rate-limit or other errors
+        elif message.author.id == 1376308591115501618:
+            try:
+                await message.add_reaction("🐈")
+            except Exception:
+                pass  # ignore rate-limit or other errors
     # 1) Ensure they exist in accountinfo
     async with db_pool.acquire() as conn:
         await conn.execute(
