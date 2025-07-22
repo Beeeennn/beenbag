@@ -39,8 +39,8 @@ RARITIES ={
     1:{"colour":"white","name":"common","wheat":5,"emeralds":1,"stay":180},
     2:{"colour":"green","name":"uncommon","wheat":10,"emeralds":2,"stay":160},
     3:{"colour":"blue","name":"rare","wheat":15,"emeralds":3,"stay":120},
-    4:{"colour":"purple","name":"epic","wheat":25,"emeralds":5,"stay":60},
-    5:{"colour":"red","name":"legendary","wheat":40,"emeralds":10,"stay":40}
+    4:{"colour":"purple","name":"epic","wheat":25,"emeralds":5,"stay":90},
+    5:{"colour":"red","name":"legendary","wheat":40,"emeralds":10,"stay":60}
 }
 COLOR_MAP = {
     "white":  discord.Color.light_grey(),
@@ -1841,7 +1841,7 @@ async def spawn_mob_loop():
     max_r = max(rarities)
 
     # weight = (max_r + 1) – rarity  → commons get highest weight
-    weights = [(4**(max_r + 1-r)) for r in rarities]
+    weights = [(2**(max_r + 1-r)) for r in rarities]
     while True:
         try:
             # wait 4–20 minutes
@@ -1879,6 +1879,7 @@ async def spawn_mob_loop():
                 center = (cx_px / w, cy_px / h)
             else:
                 # fallback to true random if no alpha info
+                logging.info("No bbox found")
                 center = (random.uniform(0.1, 0.9), random.uniform(0.1, 0.9))
             # send initial 1×1 pixel frame
             frame_sizes = [1, 2, 4, 8, 16, src.size[0]]  # final = full res width
@@ -1920,7 +1921,7 @@ async def spawn_mob_loop():
                 make_frame(lvl).save(buf, format="PNG")
                 buf.seek(0)
                 await msg.edit(
-                    content=f"A mob is appearing, say its name to catch it ({lvl})",
+                    content=f"A mob is appearing, say its name to catch it",
                     attachments=[discord.File(buf, "spawn.png")])
             spawn_id = record["spawn_id"]
             bot.loop.create_task(
