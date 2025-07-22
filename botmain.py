@@ -1901,15 +1901,7 @@ async def spawn_mob_loop():
                 "A mob is appearing, say its name to catch it",
                 file=discord.File(buf, "spawn.png")
             )
-            # step through each larger frame
-            for lvl in levels[1:]:
-                await asyncio.sleep(15)
-                buf = io.BytesIO()
-                make_frame(lvl).save(buf, format="PNG")
-                buf.seek(0)
-                await msg.edit(
-                    content=f"A mob is appearing, say its name to catch it ({lvl})",
-                    attachments=[discord.File(buf, "spawn.png")])
+           
             expires = datetime.utcnow() + timedelta(seconds=RARITIES[MOBS[mob]["rarity"]]["stay"])  # give players 5m to catch
             async with db_pool.acquire() as conn:
                 record = await conn.fetchrow(
@@ -1921,6 +1913,15 @@ async def spawn_mob_loop():
                 """,
                 chan.id, mob, msg.id, datetime.utcnow(), expires
             )
+            # step through each larger frame
+            for lvl in levels[1:]:
+                await asyncio.sleep(15)
+                buf = io.BytesIO()
+                make_frame(lvl).save(buf, format="PNG")
+                buf.seek(0)
+                await msg.edit(
+                    content=f"A mob is appearing, say its name to catch it ({lvl})",
+                    attachments=[discord.File(buf, "spawn.png")])
             spawn_id = record["spawn_id"]
             bot.loop.create_task(
                 watch_spawn_expiry(spawn_id=spawn_id,  # you'll fetch this below
@@ -1929,7 +1930,7 @@ async def spawn_mob_loop():
                                 mob_name=mob,
                                 expires_at=expires)
             )
-
+        
         except Exception:
             await asyncio.sleep(60)
 async def start_http_server():
