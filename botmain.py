@@ -1909,7 +1909,7 @@ async def spawn_mob_loop():
                 buf.seek(0)
                 await msg.edit(
                     content=f"A mob is appearing, say its name to catch it ({lvl})",
-                    attatchments=[discord.File(buf, "spawn.png")])
+                    attachments=[discord.File(buf, "spawn.png")])
             expires = datetime.utcnow() + timedelta(seconds=RARITIES[MOBS[mob]["rarity"]]["stay"])  # give players 5m to catch
             async with db_pool.acquire() as conn:
                 record = await conn.fetchrow(
