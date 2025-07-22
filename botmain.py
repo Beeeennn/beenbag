@@ -904,6 +904,95 @@ async def shop(ctx):
             inline=False
         )
     await ctx.send(embed=embed)
+
+
+@bot.command(name="breed")
+@commands.cooldown(5, 86400, commands.BucketType.user)  # 5 uses per day
+async def breed(ctx, *, mob: str):
+    """Breed a mob (costs 20 wheat & requires 2 in your barn)."""
+    user_id = ctx.author.id
+    key     = mob.title()
+
+    # 1) Validate mob exists and is non-hostile
+    if key not in MOBS:
+        return await ctx.send(f"❌ `{mob}` isn’t a valid mob.")
+    if MOBS[key]["hostile"]:
+        return await ctx.send(f"❌ You can’t breed a hostile mob like **{key}**.")
+    wheat = RARITIES[MOBS[key]["rarity"]]["wheat"]
+    async with db_pool.acquire() as conn:
+        # 2) Ensure player record
+        await conn.execute(
+            "INSERT INTO players (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
+            user_id
+        )
+        # 3) Check wheat balance
+        wheat_have = await conn.fetchval(
+            "SELECT wheat FROM players WHERE user_id = $1", user_id
+        ) or 0
+        if wheat_have < wheat:
+            return await ctx.send(
+                f"❌ You need **{wheat} wheat** to breed, but only have **{wheat_have}**."
+            )
+
+        # 4) Check barn count for that mob (non-golden)
+        have = await conn.fetchval(
+            """
+            SELECT count
+              FROM barn
+             WHERE user_id=$1 AND mob_name=$2 AND is_golden=false
+            """,
+            user_id, key
+        ) or 0
+        if have < 2:
+            return await ctx.send(
+                f"❌ You need at least **2** **{key}** in your barn to breed, but only have **{have}**."
+            )
+
+        # 5) Deduct 20 wheat
+        await conn.execute(
+            "UPDATE players SET wheat = wheat - $1 WHERE user_id = $2",wheat,
+            user_id
+        )
+        # 6) Add one more to barn
+        await conn.execute(
+            """
+            INSERT INTO barn (user_id, mob_name, is_golden, count)
+            VALUES ($1, $2, false, 1)
+            ON CONFLICT (user_id, mob_name, is_golden)
+            DO UPDATE SET count = barn.count + 1;
+            """,
+            user_id, key
+        )
+        # 7) Fetch new total
+        new_count = await conn.fetchval(
+            """
+            SELECT count
+              FROM barn
+             WHERE user_id=$1 AND mob_name=$2 AND is_golden=false
+            """,
+            user_id, key
+        )
+
+    # 8) Success message
+    await ctx.send(
+        f"🐣 {ctx.author.mention} bred a **{key}**! "
+        f"You now have **{new_count}** **{key}** in your barn."
+    )
+
+@breed.error
+async def breed_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown):
+        retry = int(error.retry_after)
+        hrs   = retry // 3600
+        mins  = (retry % 3600) // 60
+        parts = []
+        if hrs:  parts.append(f"{hrs} h")
+        if mins: parts.append(f"{mins} m")
+        when  = " ".join(parts) or f"{retry}s"
+        return await ctx.send(
+            f"❌ You’ve used all 5 breeds for today. Try again in {when}."
+        )
+    raise error
 @bot.command(name="buy")
 async def buy(ctx, *args):
     """
