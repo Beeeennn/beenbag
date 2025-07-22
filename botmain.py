@@ -1074,7 +1074,7 @@ async def exp_cmd(ctx, *, who: str = None):
 
     # 3) Build an embed
     embed = discord.Embed(
-        title=f"{ctx.author.display_name}'s Progress",
+        title=f"{member.display_name}'s Progress",
         color=discord.Color.gold()
     )
     embed.add_field(name="🎖️ Level", value=str(current_level), inline=True)
@@ -1314,7 +1314,7 @@ async def bestiary(ctx, *, who: str = None):
         data[g].setdefault(rar, []).append((r["mob_name"], r["cnt"]))
 
     embed = discord.Embed(
-        title=f"{ctx.author.display_name}'s Sacrifice Bestiary",
+        title=f"{member.display_name}'s Sacrifice Bestiary",
         color=discord.Color.teal()
     )
 
@@ -1654,7 +1654,7 @@ async def inv(ctx, *, who: str = None):
 
     # 2) Build the embed
     embed = discord.Embed(
-        title=f"{ctx.author.display_name}'s Inventory",
+        title=f"{member.display_name}'s Inventory",
         color=discord.Color.blue()
     )
     # add their avatar
@@ -1755,7 +1755,7 @@ async def barn(ctx, *, who: str = None):
 
     # 3) Build embed
     embed = discord.Embed(
-        title=f"{ctx.author.display_name}'s Barn ({size} slots)",
+        title=f"{member.display_name}'s Barn ({size} slots)",
         color=discord.Color.green()
     )
     embed.set_footer(text="Use !upbarn to expand your barn.")
