@@ -434,6 +434,7 @@ async def yt(ctx, member: discord.Member = None):
     embed.add_field(name="Channel Name", value=name or "–", inline=True)
     embed.add_field(name="Link", value=f"[Watch on YouTube]({url})", inline=True)
     await ctx.send(embed=embed)
+
 async def hourly_channel_exp_flush():
     await bot.wait_until_ready()
     while True:
@@ -468,6 +469,123 @@ async def on_ready():
         bot._channel_exp_task = bot.loop.create_task(hourly_channel_exp_flush())
     if not hasattr(bot, "_spawn_task"):
         bot._spawn_task = bot.loop.create_task(spawn_mob_loop())
+
+
+@bot.command(name="give")
+async def give(ctx, who: str, *, mob: str):
+    """
+    Usage: !give <player> <mob>
+    Attempts to give one <mob> from your barn to <player>.
+    If their barn is full, the mob is sacrificed for emeralds instead.
+    """
+    member = await resolve_member(ctx, who)
+    if not member:
+        return await ctx.send("🙄")  # eye‐roll if no such user
+    if member.id == ctx.author.id:
+        return await ctx.send("❌ You can’t give to yourself.")
+
+    mob_name = mob.title()
+    if mob_name not in MOBS:
+        return await ctx.send(f"❌ `{mob_name}` isn’t a known mob.")
+
+    user_id   = ctx.author.id
+    target_id = member.id
+
+    async with db_pool.acquire() as conn:
+        # 2) Fetch target’s barn capacity and current fill
+        row = await conn.fetchrow(
+            "SELECT barn_size FROM players WHERE user_id = $1",
+            target_id
+        )
+        target_size = row["barn_size"] if row else 5
+        total_in_barn = await conn.fetchval(
+            "SELECT COALESCE(SUM(count), 0) FROM barn WHERE user_id = $1",
+            target_id
+        )
+
+        # 3) Fetch one mob from your barn (prefer non-golden)
+        rec = await conn.fetchrow(
+            """
+            SELECT is_golden, count
+              FROM barn
+             WHERE user_id = $1
+               AND mob_name = $2
+             ORDER BY is_golden ASC
+             LIMIT 1
+            """,
+            user_id, mob_name
+        )
+        if not rec:
+            return await ctx.send(f"❌ You have no **{mob_name}** to give.")
+        is_golden = rec["is_golden"]
+        have      = rec["count"]
+
+        # 4) Remove it from your barn
+        if have > 1:
+            await conn.execute(
+                """
+                UPDATE barn
+                   SET count = count - 1
+                 WHERE user_id = $1
+                   AND mob_name = $2
+                   AND is_golden = $3
+                """,
+                user_id, mob_name, is_golden
+            )
+        else:
+            await conn.execute(
+                """
+                DELETE FROM barn
+                 WHERE user_id = $1
+                   AND mob_name = $2
+                   AND is_golden = $3
+                """,
+                user_id, mob_name, is_golden
+            )
+
+        # 5) If recipient has room, transfer it
+        if total_in_barn < target_size:
+            await conn.execute(
+                """
+                INSERT INTO barn (user_id, mob_name, is_golden, count)
+                VALUES ($1, $2, $3, 1)
+                ON CONFLICT (user_id, mob_name, is_golden) DO UPDATE
+                  SET count = barn.count + 1
+                """,
+                target_id, mob_name, is_golden
+            )
+            return await ctx.send(
+                f"✅ You gave {'✨ ' if is_golden else ''}**{mob_name}** to {member.mention}!"
+            )
+
+        # 6) Otherwise, sacrifice it for emeralds to *you*
+        rarity = MOBS[mob_name]["rarity"]
+        base   = RARITIES[rarity]["emeralds"]
+        reward = base * (2 if is_golden else 1)
+
+        await conn.execute(
+            "UPDATE players SET emeralds = emeralds + $1 WHERE user_id = $2",
+            reward, user_id
+        )
+        # record in history
+        await conn.execute(
+            """
+            INSERT INTO sacrifice_history (discord_id, mob_name, is_golden, rarity)
+            VALUES ($1, $2, $3, $4)
+            """,
+            user_id, mob_name, is_golden, rarity
+        )
+
+    await ctx.send(
+        f"⚠️ {member.display_name}`s barn is full, so you sacrificed "
+        f"{'✨ ' if is_golden else ''}**{mob_name}** for 💠 **{reward}** emeralds!"
+    )
+
+@give.error
+async def give_error(ctx, error):
+    if isinstance(error, commands.MissingRequiredArgument):
+        return await ctx.send("❌ Usage: `!give <player> <mob>`")
+    raise error
 @bot.event
 async def on_command_error(ctx, error):
     # ignore these
