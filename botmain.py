@@ -174,12 +174,12 @@ def make_link_code(length: int = 8) -> str:
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 async def resolve_member(ctx: commands.Context, query: str) -> discord.Member | None:
     """
-    Resolve a string into a Member, trying:
-      • MemberConverter (mentions, IDs, name#disc, nicknames)
-      • fetch_member for raw IDs
-      • case-insensitive display_name or name
+    Resolve a string to a Member by:
+      1) MemberConverter (handles mentions, IDs, name#disc, nicknames)
+      2) guild.fetch_member() for raw IDs
+      3) case‐insensitive match on display_name or name
     """
-    # 1) MemberConverter magic
+    # 1) try the built-in converter
     try:
         return await commands.MemberConverter().convert(ctx, query)
     except commands.BadArgument:
@@ -191,7 +191,7 @@ async def resolve_member(ctx: commands.Context, query: str) -> discord.Member | 
 
     q = query.strip()
 
-    # 2) Raw mention or ID → fetch if not in cache
+    # 2) raw mention or ID
     m = re.match(r"<@!?(?P<id>\d+)>$", q)
     if m:
         uid = int(m.group("id"))
@@ -201,15 +201,17 @@ async def resolve_member(ctx: commands.Context, query: str) -> discord.Member | 
         uid = None
 
     if uid is not None:
+        # a) cached?
         member = guild.get_member(uid)
         if member:
             return member
+        # b) fetch from API
         try:
             return await guild.fetch_member(uid)
         except discord.NotFound:
             return None
 
-    # 3) Case-insensitive name or display_name
+    # 3) name or display_name (case‐insensitive)
     ql = q.lower()
     for m in guild.members:
         if m.display_name.lower() == ql or m.name.lower() == ql:
@@ -1036,15 +1038,16 @@ async def buy(ctx, *args):
 @bot.command(name="exp", aliases=["experience", "level", "lvl"])
 async def exp_cmd(ctx, *, who: str = None):
     """Show your current level and progress toward the next level."""
-    # 1) Resolve target member
+    # Resolve who → Member (or fallback to author)
     if who is None:
         member = ctx.author
     else:
         member = await resolve_member(ctx, who)
         if member is None:
-            return await ctx.send(f"❌ Member `{who}` not found.")
+            return await ctx.send("Member not found.")  # or "Member not found."
 
-    user_id = member.id  # << always an int
+    # Now you’ve got a real Member with .id, .display_name, etc.
+    user_id = member.id
 
     # 1) Fetch their total exp from accountinfo
     async with db_pool.acquire() as conn:
@@ -1281,15 +1284,16 @@ AXEWOOD = {None:1,"wood":2,"stone":2,"iron":3,"gold":3,"diamond":4}
 async def bestiary(ctx, *, who: str = None):
     """Show all mobs you’ve sacrificed, split by Golden vs. normal and by rarity."""
 
-    # 1) Resolve target member
+    # Resolve who → Member (or fallback to author)
     if who is None:
         member = ctx.author
     else:
         member = await resolve_member(ctx, who)
         if member is None:
-            return await ctx.send(f"❌ Member `{who}` not found.")
+            return await ctx.send("Member not found.")  # or "Member not found."
 
-    user_id = member.id  # << always an int
+    # Now you’ve got a real Member with .id, .display_name, etc.
+    user_id = member.id
     async with db_pool.acquire() as conn:
         rows = await conn.fetch(
             """
@@ -1612,15 +1616,16 @@ async def farm_error(ctx, error):
 @bot.command(name="inv", aliases=["inventory"])
 async def inv(ctx, *, who: str = None):
     """Show your inventory."""
-    # 1) Resolve target member
+    # Resolve who → Member (or fallback to author)
     if who is None:
         member = ctx.author
     else:
         member = await resolve_member(ctx, who)
         if member is None:
-            return await ctx.send(f"❌ Member `{who}` not found.")
+            return await ctx.send("Member not found.")  # or "Member not found."
 
-    user_id = member.id  # << always an int
+    # Now you’ve got a real Member with .id, .display_name, etc.
+    user_id = member.id
 
     # 1) Fetch their row
     async with db_pool.acquire() as conn:
@@ -1711,15 +1716,16 @@ async def inv(ctx, *, who: str = None):
 @bot.command(name="barn")
 async def barn(ctx, *, who: str = None):
     """Show your barn split by Golden vs. normal and by rarity."""
-    # 1) Resolve target member
+    # Resolve who → Member (or fallback to author)
     if who is None:
         member = ctx.author
     else:
         member = await resolve_member(ctx, who)
         if member is None:
-            return await ctx.send(f"❌ Member `{who}` not found.")
+            return await ctx.send("Member not found.")  # or "Member not found."
 
-    user_id = member.id  # << always an int
+    # Now you’ve got a real Member with .id, .display_name, etc.
+    user_id = member.id
 
     # 1) Fetch barn entries
     async with db_pool.acquire() as conn:
