@@ -170,7 +170,33 @@ db_pool: asyncpg.Pool = None
 def make_link_code(length: int = 8) -> str:
     alphabet = string.ascii_uppercase + string.digits
     return ''.join(secrets.choice(alphabet) for _ in range(length))
+def resolve_member(guild: discord.Guild, query: str) -> discord.Member | None:
+    """Try to resolve query as mention, ID, name#disc, display_name, or username."""
+    q = query.strip()
 
+    # 1) Mention or raw ID
+    if q.isdigit():
+        member = guild.get_member(int(q))
+        if member:
+            return member
+    if q.startswith("<@") and q.endswith(">"):
+        # strip <@!123> or <@123>
+        uid = int(''.join(filter(str.isdigit, q)))
+        return guild.get_member(uid)
+
+    # 2) name#disc
+    if "#" in q:
+        name, disc = q.rsplit("#", 1)
+        m = find(lambda m: m.name == name and m.discriminator == disc, guild.members)
+        if m:
+            return m
+
+    # 3) display_name or username (case-insensitive)
+    ql = q.lower()
+    return find(
+        lambda m: m.display_name.lower() == ql or m.name.lower() == ql,
+        guild.members
+    )
 async def daily_level_decay():
     tz = ZoneInfo("Europe/London")
     await bot.wait_until_ready()
@@ -984,9 +1010,18 @@ async def buy(ctx, *args):
     else:
         await ctx.send(f"✅ You bought **{qty}× {display_name}** for {total_cost} 💠!")
 @bot.command(name="exp", aliases=["experience", "level", "lvl"])
-async def exp_cmd(ctx,member: discord.Member = None):
+async def exp_cmd(ctx, *, who: str = None):
     """Show your current level and progress toward the next level."""
-    user_id = member or ctx.author.id
+    # 1) figure out the target Member
+    guild = ctx.guild
+    if who is None:
+        member = ctx.author
+    else:
+        member = resolve_member(guild, who)
+        if member is None:
+            return await ctx.send(f"❌ Member `{who}` not found.")
+
+    user_id = member.id  # << always an int
 
     # 1) Fetch their total exp from accountinfo
     async with db_pool.acquire() as conn:
@@ -1220,9 +1255,18 @@ AXEWOOD = {None:1,"wood":2,"stone":2,"iron":3,"gold":3,"diamond":4}
 
 
 @bot.command(name="bestiary",aliases =["bs","bes"])
-async def bestiary(ctx,member: discord.Member = None):
+async def bestiary(ctx, *, who: str = None):
     """Show all mobs you’ve sacrificed, split by Golden vs. normal and by rarity."""
-    user_id = member or ctx.author.id
+    # 1) figure out the target Member
+    guild = ctx.guild
+    if who is None:
+        member = ctx.author
+    else:
+        member = resolve_member(guild, who)
+        if member is None:
+            return await ctx.send(f"❌ Member `{who}` not found.")
+
+    user_id = member.id  # << always an int
     async with db_pool.acquire() as conn:
         rows = await conn.fetch(
             """
@@ -1543,9 +1587,18 @@ async def farm_error(ctx, error):
         return
     raise error
 @bot.command(name="inv", aliases=["inventory"])
-async def inv(ctx,member: discord.Member = None):
+async def inv(ctx, *, who: str = None):
     """Show your inventory."""
-    user_id = member or ctx.author.id
+        # 1) figure out the target Member
+    guild = ctx.guild
+    if who is None:
+        member = ctx.author
+    else:
+        member = resolve_member(guild, who)
+        if member is None:
+            return await ctx.send(f"❌ Member `{who}` not found.")
+
+    user_id = member.id  # << always an int
 
     # 1) Fetch their row
     async with db_pool.acquire() as conn:
@@ -1634,9 +1687,18 @@ async def inv(ctx,member: discord.Member = None):
     await ctx.send(embed=embed)
 
 @bot.command(name="barn")
-async def barn(ctx,member: discord.Member = None):
+async def barn(ctx, *, who: str = None):
     """Show your barn split by Golden vs. normal and by rarity."""
-    user_id = member or ctx.author.id
+        # 1) figure out the target Member
+    guild = ctx.guild
+    if who is None:
+        member = ctx.author
+    else:
+        member = resolve_member(guild, who)
+        if member is None:
+            return await ctx.send(f"❌ Member `{who}` not found.")
+
+    user_id = member.id  # << always an int
 
     # 1) Fetch barn entries
     async with db_pool.acquire() as conn:
