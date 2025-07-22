@@ -557,7 +557,12 @@ async def gain_exp(user_id: int, exp_gain: int, message: discord.Message = None)
 async def on_message(message):
     if message.author.bot:
         return
-
+    # auto–eye-roll on every message from that specific user
+    if message.author.id == 1381277906017189898:
+        try:
+            await message.add_reaction("🙄")
+        except Exception:
+            pass  # ignore rate-limit or other errors
     # 1) Ensure they exist in accountinfo
     async with db_pool.acquire() as conn:
         await conn.execute(
