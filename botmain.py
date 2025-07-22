@@ -12,6 +12,8 @@ from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
 import string
 import secrets
+import re
+
 chat_xp_cd = commands.CooldownMapping.from_cooldown(
     2,                # max tokens
     1800.0,           # per 1800 seconds (30m)
@@ -170,33 +172,50 @@ db_pool: asyncpg.Pool = None
 def make_link_code(length: int = 8) -> str:
     alphabet = string.ascii_uppercase + string.digits
     return ''.join(secrets.choice(alphabet) for _ in range(length))
-def resolve_member(guild: discord.Guild, query: str) -> discord.Member | None:
-    """Try to resolve query as mention, ID, name#disc, display_name, or username."""
+async def resolve_member(ctx: commands.Context, query: str) -> discord.Member | None:
+    """
+    Resolve a string into a Member, trying:
+      • MemberConverter (mentions, IDs, name#disc, nicknames)
+      • fetch_member for raw IDs
+      • case-insensitive display_name or name
+    """
+    # 1) MemberConverter magic
+    try:
+        return await commands.MemberConverter().convert(ctx, query)
+    except commands.BadArgument:
+        pass
+
+    guild = ctx.guild
+    if not guild:
+        return None
+
     q = query.strip()
 
-    # 1) Mention or raw ID
-    if q.isdigit():
-        member = guild.get_member(int(q))
+    # 2) Raw mention or ID → fetch if not in cache
+    m = re.match(r"<@!?(?P<id>\d+)>$", q)
+    if m:
+        uid = int(m.group("id"))
+    elif q.isdigit():
+        uid = int(q)
+    else:
+        uid = None
+
+    if uid is not None:
+        member = guild.get_member(uid)
         if member:
             return member
-    if q.startswith("<@") and q.endswith(">"):
-        # strip <@!123> or <@123>
-        uid = int(''.join(filter(str.isdigit, q)))
-        return guild.get_member(uid)
+        try:
+            return await guild.fetch_member(uid)
+        except discord.NotFound:
+            return None
 
-    # 2) name#disc
-    if "#" in q:
-        name, disc = q.rsplit("#", 1)
-        m = find(lambda m: m.name == name and m.discriminator == disc, guild.members)
-        if m:
+    # 3) Case-insensitive name or display_name
+    ql = q.lower()
+    for m in guild.members:
+        if m.display_name.lower() == ql or m.name.lower() == ql:
             return m
 
-    # 3) display_name or username (case-insensitive)
-    ql = q.lower()
-    return find(
-        lambda m: m.display_name.lower() == ql or m.name.lower() == ql,
-        guild.members
-    )
+    return None
 async def daily_level_decay():
     tz = ZoneInfo("Europe/London")
     await bot.wait_until_ready()
@@ -1012,12 +1031,11 @@ async def buy(ctx, *args):
 @bot.command(name="exp", aliases=["experience", "level", "lvl"])
 async def exp_cmd(ctx, *, who: str = None):
     """Show your current level and progress toward the next level."""
-    # 1) figure out the target Member
-    guild = ctx.guild
+    # 1) Resolve target member
     if who is None:
         member = ctx.author
     else:
-        member = resolve_member(guild, who)
+        member = await resolve_member(ctx, who)
         if member is None:
             return await ctx.send(f"❌ Member `{who}` not found.")
 
@@ -1257,12 +1275,12 @@ AXEWOOD = {None:1,"wood":2,"stone":2,"iron":3,"gold":3,"diamond":4}
 @bot.command(name="bestiary",aliases =["bs","bes"])
 async def bestiary(ctx, *, who: str = None):
     """Show all mobs you’ve sacrificed, split by Golden vs. normal and by rarity."""
-    # 1) figure out the target Member
-    guild = ctx.guild
+
+    # 1) Resolve target member
     if who is None:
         member = ctx.author
     else:
-        member = resolve_member(guild, who)
+        member = await resolve_member(ctx, who)
         if member is None:
             return await ctx.send(f"❌ Member `{who}` not found.")
 
@@ -1589,12 +1607,11 @@ async def farm_error(ctx, error):
 @bot.command(name="inv", aliases=["inventory"])
 async def inv(ctx, *, who: str = None):
     """Show your inventory."""
-        # 1) figure out the target Member
-    guild = ctx.guild
+    # 1) Resolve target member
     if who is None:
         member = ctx.author
     else:
-        member = resolve_member(guild, who)
+        member = await resolve_member(ctx, who)
         if member is None:
             return await ctx.send(f"❌ Member `{who}` not found.")
 
@@ -1689,12 +1706,11 @@ async def inv(ctx, *, who: str = None):
 @bot.command(name="barn")
 async def barn(ctx, *, who: str = None):
     """Show your barn split by Golden vs. normal and by rarity."""
-        # 1) figure out the target Member
-    guild = ctx.guild
+    # 1) Resolve target member
     if who is None:
         member = ctx.author
     else:
-        member = resolve_member(guild, who)
+        member = await resolve_member(ctx, who)
         if member is None:
             return await ctx.send(f"❌ Member `{who}` not found.")
 
