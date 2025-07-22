@@ -38,11 +38,11 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 RARITIES ={
-    1:{"colour":"white","name":"common","wheat":5,"emeralds":1,"stay":180},
-    2:{"colour":"green","name":"uncommon","wheat":10,"emeralds":2,"stay":160},
-    3:{"colour":"blue","name":"rare","wheat":15,"emeralds":3,"stay":120},
-    4:{"colour":"purple","name":"epic","wheat":25,"emeralds":5,"stay":90},
-    5:{"colour":"red","name":"legendary","wheat":40,"emeralds":10,"stay":60}
+    1:{"colour":"white","name":"common","wheat":10,"emeralds":1,"stay":180},
+    2:{"colour":"green","name":"uncommon","wheat":20,"emeralds":2,"stay":160},
+    3:{"colour":"blue","name":"rare","wheat":30,"emeralds":3,"stay":120},
+    4:{"colour":"purple","name":"epic","wheat":50,"emeralds":5,"stay":90},
+    5:{"colour":"red","name":"legendary","wheat":80,"emeralds":10,"stay":60}
 }
 COLOR_MAP = {
     "white":  discord.Color.light_grey(),
