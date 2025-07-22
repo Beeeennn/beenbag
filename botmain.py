@@ -984,9 +984,9 @@ async def buy(ctx, *args):
     else:
         await ctx.send(f"✅ You bought **{qty}× {display_name}** for {total_cost} 💠!")
 @bot.command(name="exp", aliases=["experience", "level", "lvl"])
-async def exp_cmd(ctx):
+async def exp_cmd(ctx,member: discord.Member = None):
     """Show your current level and progress toward the next level."""
-    user_id = ctx.author.id
+    user_id = member or ctx.author.id
 
     # 1) Fetch their total exp from accountinfo
     async with db_pool.acquire() as conn:
@@ -1220,9 +1220,9 @@ AXEWOOD = {None:1,"wood":2,"stone":2,"iron":3,"gold":3,"diamond":4}
 
 
 @bot.command(name="bestiary",aliases =["bs","bes"])
-async def bestiary(ctx):
+async def bestiary(ctx,member: discord.Member = None):
     """Show all mobs you’ve sacrificed, split by Golden vs. normal and by rarity."""
-    user_id = ctx.author.id
+    user_id = member or ctx.author.id
     async with db_pool.acquire() as conn:
         rows = await conn.fetch(
             """
@@ -1543,9 +1543,9 @@ async def farm_error(ctx, error):
         return
     raise error
 @bot.command(name="inv", aliases=["inventory"])
-async def inv(ctx):
+async def inv(ctx,member: discord.Member = None):
     """Show your inventory."""
-    user_id = ctx.author.id
+    user_id = member or ctx.author.id
 
     # 1) Fetch their row
     async with db_pool.acquire() as conn:
@@ -1634,9 +1634,9 @@ async def inv(ctx):
     await ctx.send(embed=embed)
 
 @bot.command(name="barn")
-async def barn(ctx):
+async def barn(ctx,member: discord.Member = None):
     """Show your barn split by Golden vs. normal and by rarity."""
-    user_id = ctx.author.id
+    user_id = member or ctx.author.id
 
     # 1) Fetch barn entries
     async with db_pool.acquire() as conn:
