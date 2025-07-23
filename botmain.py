@@ -564,7 +564,7 @@ async def give(ctx, who: str, *, mob: str):
         reward = base * (2 if is_golden else 1)
 
         await conn.execute(
-            "UPDATE players SET emeralds = emeralds + $1 WHERE user_id = $2",
+            "UPDATE accountinfo SET emeralds = emeralds + $1 WHERE discord_id = $2",
             reward, user_id
         )
         # record in history
