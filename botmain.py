@@ -536,9 +536,9 @@ async def give(ctx, who: str, *, mob: str):
             await conn.execute(
                 """
                 DELETE FROM barn
-                 WHERE user_id = $1
-                   AND mob_name = $2
-                   AND is_golden = $3
+                WHERE user_id = $1
+                AND mob_name = $2
+                AND is_golden = $3
                 """,
                 user_id, mob_name, is_golden
             )
@@ -1140,6 +1140,8 @@ async def buy(ctx, *args):
     # allow "exp" shortcut for "Exp Bottle"
     if raw_name in ("exp", "experience"):
         lookup_name = "exp bottle"
+    elif raw_name in ("pack", "mob pack", "mystery mob pack"):
+        lookup_name = "mystery animal"
     else:
         lookup_name = raw_name
 
@@ -1223,7 +1225,8 @@ async def buy(ctx, *args):
         )
     elif display_name == "Mystery Animal":
         got = []
-        rarities = [MOBS[name]["rarity"] for name in list(MOBS.keys())]
+        mobs = ([m for m,v in MOBS.items() if not v["hostile"]])
+        rarities = [MOBS[name]["rarity"] for name in mobs]
         max_r = max(rarities)
         weights = [(2**(max_r + 1-r)) for r in rarities]
         async with db_pool.acquire() as conn:
