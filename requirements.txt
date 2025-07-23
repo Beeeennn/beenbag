@@ -3,4 +3,4 @@ aiohttp
 asyncpg
 pillow
 pytz
-dataparser
+dateparser
