@@ -706,7 +706,7 @@ async def on_message(message):
         
         if dt:
             timestamp = int(dt.timestamp())
-            discord_format = f"<t:{timestamp}:F>"  # Full timestamp format
+            discord_format = f"<t:{timestamp}:t>"  # Full timestamp format
             await message.reply(f"{text_time.strip()} → {discord_format}")
         else:
             await message.reply("Sorry, I couldn't understand the time you mentioned.")
