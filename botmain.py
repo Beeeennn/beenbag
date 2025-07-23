@@ -225,6 +225,7 @@ async def resolve_member(ctx: commands.Context, query: str) -> discord.Member | 
 async def daily_level_decay():
     tz = ZoneInfo("Europe/London")
     await bot.wait_until_ready()
+    ch=bot.get_channel(1396194783713824800)
     while True:
         # compute seconds until next midnight in London
         now = datetime.now(tz)
@@ -233,7 +234,7 @@ async def daily_level_decay():
         )
         delay = (tomorrow - now).total_seconds()
         await asyncio.sleep(delay)
-
+        ch.send("Now removing 1 level from everyone, gotta stay active!")
         # 1) Demote everyone by one level
         async with db_pool.acquire() as conn:
             rows = await conn.fetch("SELECT discord_id, exp FROM accountinfo")
@@ -439,6 +440,7 @@ async def yt(ctx, member: discord.Member = None):
 
 async def hourly_channel_exp_flush():
     await bot.wait_until_ready()
+    ch = bot.get_channel(1396194783713824800)
     while True:
         async with db_pool.acquire() as conn:
             rows = await conn.fetch("""
@@ -450,14 +452,16 @@ async def hourly_channel_exp_flush():
             await conn.execute("UPDATE channel_exp SET exp = 0 WHERE exp > 0")
         # hand each off to your existing gain_exp (which updates DB + roles)
         for record in rows:
-            uid = await conn.fetchval("""
-                                      SELECT discord_id
+            uid = await conn.fetch("""
+                                      SELECT discord_id, yt_channel_name
                                       FROM accountinfo
                                       WHERE yt_channel_id = $1                                      
                                       """,record["channel_id"])
             xp  = record["exp"]
+            name = uid["name"]
+            ch.send(f"Giving **{xp}** exp to **{name}** for watching my stream")
             # pass None for ctx so gain_exp just does DB+roles without messaging
-            await gain_exp(uid, xp, None)
+            await gain_exp(uid["discord_id"], xp, None)
         # wait one hour
         await asyncio.sleep(3600)
 
