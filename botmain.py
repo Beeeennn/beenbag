@@ -705,6 +705,7 @@ async def on_message(message):
         dt = dateparser.parse(text_time, settings={'RETURN_AS_TIMEZONE_AWARE': True})
         
         if dt:
+            dt = dt - timedelta(hours=1)
             timestamp = int(dt.timestamp())
             discord_format = f"<t:{timestamp}:t>"  # Full timestamp format
             await message.reply(f"{text_time.strip()} → {discord_format}")
