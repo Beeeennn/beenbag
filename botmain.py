@@ -699,7 +699,7 @@ async def on_message(message):
     # Regex to match flexible time formats like "9:00 PM GMT", "21:00 UTC", "9pm est"
     match = re.search(r'(\d{1,2}(:\d{2})?\s*(am|pm)?\s*(gmt|utc|est|pst|cet|cst|ist|aest|pdt|edt|bst|jst)?)', message.content, re.IGNORECASE)
     
-    if match:
+    if match and ":" in match:
         text_time = match.group(0)
         # Parse the time string with dateparser
         dt = dateparser.parse(text_time, settings={'RETURN_AS_TIMEZONE_AWARE': True})
