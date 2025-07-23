@@ -8,6 +8,8 @@ import asyncpg
 from aiohttp import web
 from PIL import Image
 import io
+import dateparser
+
 from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
 import string
@@ -691,6 +693,23 @@ async def on_message(message):
                 await message.add_reaction("🐈")
             except Exception:
                 pass  # ignore rate-limit or other errors
+    if message.author.bot:
+        return
+
+    # Regex to match flexible time formats like "9:00 PM GMT", "21:00 UTC", "9pm est"
+    match = re.search(r'(\d{1,2}(:\d{2})?\s*(am|pm)?\s*(gmt|utc|est|pst|cet|cst|ist|aest|pdt|edt|bst|jst)?)', message.content, re.IGNORECASE)
+    
+    if match:
+        text_time = match.group(0)
+        # Parse the time string with dateparser
+        dt = dateparser.parse(text_time, settings={'RETURN_AS_TIMEZONE_AWARE': True})
+        
+        if dt:
+            timestamp = int(dt.timestamp())
+            discord_format = f"<t:{timestamp}:F>"  # Full timestamp format
+            await message.reply(f"{text_time.strip()} → {discord_format}")
+        else:
+            await message.reply("Sorry, I couldn't understand the time you mentioned.")
     # 1) Ensure they exist in accountinfo
     async with db_pool.acquire() as conn:
         await conn.execute(
