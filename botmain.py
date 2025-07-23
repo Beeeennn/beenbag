@@ -1405,7 +1405,7 @@ async def givemob(ctx, member: discord.Member, mob_name: str, count: int = 1):
     mob_name = mob_name.lower()
     
     # Validate mob
-    if mob_name not in MOBS:
+    if mob_name.title() not in MOBS:
         return await ctx.send(f"❌ Mob `{mob_name}` not found.")
     
     # Validate count
@@ -1420,7 +1420,7 @@ async def givemob(ctx, member: discord.Member, mob_name: str, count: int = 1):
             ON CONFLICT (user_id, mob_name) DO UPDATE
               SET count = barn.count + $3
             """,
-            member.id, mob_name, count
+            member.id, mob_name.title(), count
         )
     
     await ctx.send(f"✅ Gave {count}× `{mob_name}` to {member.mention}.")
