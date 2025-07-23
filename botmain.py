@@ -1399,6 +1399,31 @@ async def leaderboard(ctx):
     )
 
     await ctx.send(embed=embed)
+@bot.command(name="givemob")
+@commands.has_permissions(manage_guild=True)
+async def givemob(ctx, member: discord.Member, mob_name: str, count: int = 1):
+    mob_name = mob_name.lower()
+    
+    # Validate mob
+    if mob_name not in MOBS:
+        return await ctx.send(f"❌ Mob `{mob_name}` not found.")
+    
+    # Validate count
+    if count <= 0:
+        return await ctx.send("❌ Count must be greater than 0.")
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO barn (user_id, mob_name, count)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id, mob_name) DO UPDATE
+              SET count = barn.count + $3
+            """,
+            member.id, mob_name, count
+        )
+    
+    await ctx.send(f"✅ Gave {count}× `{mob_name}` to {member.mention}.")
 
 @bot.command(name="sacrifice", aliases=["sac", "kill"])
 async def sacrifice(ctx, *, mob_name: str):
