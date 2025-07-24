@@ -460,6 +460,7 @@ async def hourly_channel_exp_flush():
             xp  = record["exp"]
             name = uid["name"]
             ch.send(f"Giving **{xp}** exp to **{name}** for watching my stream")
+            await asyncio.sleep(1)
             # pass None for ctx so gain_exp just does DB+roles without messaging
             await gain_exp(uid["discord_id"], xp, None)
         # wait one hour
@@ -1464,24 +1465,6 @@ async def sacrifice(ctx, *, mob_name: str):
             return await ctx.send(f"❌ You have no **{key}** to sacrifice.")
         have     = rec["count"]
         is_gold  = rec["is_golden"]
-        if have > 1:
-            await conn.execute(
-                """
-                UPDATE barn
-                   SET count = count - 1
-                 WHERE user_id=$1 AND mob_name=$2 AND is_golden=$3
-                """,
-                user_id, key, is_gold
-            )
-        else:
-            await conn.execute(
-                """
-                DELETE FROM barn
-                 WHERE user_id=$1 AND mob_name=$2 AND is_golden=$3
-                """,
-                user_id, key, is_gold
-            )
-
         # remove one
         swords = await conn.fetch(
             """
