@@ -1136,6 +1136,24 @@ async def breed_error(ctx, error):
             f"❌ You’ve used all 5 breeds for today. Try again in {when}."
         )
     raise error
+@bot.command(name="update")
+async def updates(ctx):
+    role_id = 1398063505189507132
+    role = ctx.guild.get_role(role_id)
+
+    if not role:
+        return await ctx.send("⚠️ Role not found in this server.")
+
+    if role in ctx.author.roles:
+        return await ctx.send("✅ You already have the updates role.")
+
+    try:
+        await ctx.author.add_roles(role)
+        await ctx.send(f"📢 You've been given the **{role.name}** role!")
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to give that role.")
+    except Exception as e:
+        await ctx.send(f"❌ Something went wrong: `{e}`")
 @bot.command(name="buy")
 async def buy(ctx, *args):
     """
@@ -1592,9 +1610,9 @@ async def bestiary(ctx, *, who: str = None):
 
     await ctx.send(embed=embed)
 @bot.command(name="chop")
-@commands.cooldown(1, 120, commands.BucketType.user)  # 1 use per 240s per user
+@commands.cooldown(1, 60, commands.BucketType.user)  # 1 use per 240s per user
 async def chop(ctx):
-    """Gain 1 wood every 120s."""
+    """Gain 1 wood every 60s."""
     user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
