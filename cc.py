@@ -1359,7 +1359,10 @@ async def c_generate_aquarium(ctx, who):
     user_id = member.id
     async with db_pool.acquire() as conn:
 
-
+        await conn.execute("""
+            DELETE FROM aquarium
+            WHERE time_caught < NOW() - INTERVAL '1 day'
+        """)
         row = await conn.fetch("""
         SELECT color1, color2, type
         FROM aquarium                 
@@ -1423,4 +1426,4 @@ async def c_generate_aquarium(ctx, who):
     buf = io.BytesIO()
     result.save(buf, format="PNG")
     buf.seek(0)
-    await ctx.send(f"{member.display_name}'s Aquarium**!", file=discord.File(buf, "aquarium.png"))
+    await ctx.send(f"**{member.display_name}'s Aquarium**!", file=discord.File(buf, "aquarium.png"))
