@@ -1240,6 +1240,10 @@ async def c_upbarn(ctx):
             user_id
         )
 
+        await conn.fetchrow(
+            "UPDATE new_players SET barn_size = barn_size+1",
+            user_id
+        )
         # 7) Fetch post‐upgrade values
         row = await conn.fetchrow(
             "SELECT barn_size FROM new_players WHERE user_id = $1",
