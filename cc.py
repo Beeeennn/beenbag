@@ -1575,7 +1575,7 @@ async def c_use(ctx, bot, item_name, quantity):
 
 async def c_stronghold(ctx):
     async with db_pool.acquire() as conn:
-        cobble = get_items(conn, ctx.author.id, "cobblestone")
+        cobble = await get_items(conn, ctx.author.id, "cobblestone")
         if cobble < 0:
             return await ctx.send(f"❌ You need 8 cobblestone or a dungeon key to enter")
         if ctx.author.id != 674671907626287151:
