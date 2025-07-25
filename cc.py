@@ -1560,7 +1560,8 @@ async def c_use(ctx, bot, item_name, quantity):
             await gain_exp(conn,bot,user_id,quantity)
     elif item_name == "fish food":        
         emeralds_to_give = quantity // 100
-        await give_items(user_id, "emeralds", emeralds_to_give,"emeralds",False,conn)
+        async with db_pool.acquire() as conn:
+            await give_items(user_id, "emeralds", emeralds_to_give,"emeralds",False,conn)
         await ctx.send(f"💠 You traded {quantity} fish food for {emeralds_to_give} emeralds!")
     elif item_name == "boss mob ticket":
         # ID of the user to ping (as a mention)
