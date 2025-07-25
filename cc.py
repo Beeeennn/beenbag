@@ -348,7 +348,7 @@ async def c_shop(ctx):
 
 
 async def c_breed(ctx, mob: str):
-    """Breed a mob (costs 20 wheat & requires 2 in your barn)."""
+    """Breed a mob (costs wheat & requires 2 in your barn)."""
     user_id = ctx.author.id
     key     = mob.title()
 
@@ -357,17 +357,20 @@ async def c_breed(ctx, mob: str):
         return await ctx.send(f"❌ `{mob}` isn’t a valid mob.")
     if MOBS[key]["hostile"]:
         return await ctx.send(f"❌ You can’t breed a hostile mob like **{key}**.")
+    
     wheat = RARITIES[MOBS[key]["rarity"]]["wheat"]
+
     async with db_pool.acquire() as conn:
-        await ensure_player(conn,user_id)
-        # 3) Check wheat balance
-        wheat_have =await get_items(conn,user_id,"wheat")
+        await ensure_player(conn, user_id)
+
+        # 2) Check wheat balance
+        wheat_have = await get_items(conn, user_id, "wheat")
         if wheat_have < wheat:
             return await ctx.send(
                 f"❌ You need **{wheat} wheat** to breed, but only have **{wheat_have}**."
             )
 
-        # 4) Check barn count for that mob (non-golden)
+        # 3) Check barn count for that mob (non-golden)
         have = await conn.fetchval(
             """
             SELECT count
@@ -381,11 +384,25 @@ async def c_breed(ctx, mob: str):
                 f"❌ You need at least **2** **{key}** in your barn to breed, but only have **{have}**."
             )
 
-        # 5) Deduct amount of wheat
-        await take_items(user_id,"wheat",wheat,conn)
-        new_count = await give_mob(conn,user_id,key)
+        # 4) Check barn space
+        occupancy = await conn.fetchval(
+            "SELECT COALESCE(SUM(count), 0) FROM barn WHERE user_id = $1",
+            user_id
+        )
+        barn_size = await conn.fetchval(
+            "SELECT barn_size FROM new_players WHERE user_id = $1",
+            user_id
+        )
+        if occupancy >= barn_size:
+            return await ctx.send(
+                f"❌ Your barn is full (**{occupancy}/{barn_size}**). Upgrade it before breeding more mobs!"
+            )
 
-    # 8) Success message
+        # 5) Deduct wheat and breed
+        await take_items(user_id, "wheat", wheat, conn)
+        new_count = await give_mob(conn, user_id, key)
+
+    # 6) Success
     await ctx.send(
         f"🐣 {ctx.author.mention} bred a **{key}**! "
         f"You now have **{new_count}** **{key}** in your barn."
