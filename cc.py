@@ -1578,9 +1578,6 @@ async def c_stronghold(ctx):
         cobble = await get_items(conn, ctx.author.id, "cobblestone")
         if cobble < 0:
             return await ctx.send(f"❌ You need 8 cobblestone or a dungeon key to enter")
-        if ctx.author.id != 674671907626287151:
-            return await ctx.send(f"❌ You cant do this yet")
-            #take_items(ctx.author.id, "cobblestone", 8, conn)
     view = PathButtons(level=0, collected={}, player_id=ctx.author.id, db_pool=db_pool)
     embed = discord.Embed(
         title="Stronghold - Room 0",

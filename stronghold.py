@@ -4,11 +4,11 @@ import random, asyncio
 from constants import *
 
 DEATH_MESSAGES = [
-    "💀 You ran into lava.",
-    "☠️ You fell down a hole.",
-    "👻 You didn't see the creeper around the corner.",
-    "🕸️ The silverfish got you.",
-    "🧟 You got lost and starved."
+    "💀 You ran into lava. You lost all your loot!",
+    "☠️ You fell down a hole. You lost all your loot!",
+    "👻 You didn't see the creeper around the corner. You lost all your loot!",
+    "🕸️ The silverfish got you. You lost all your loot!",
+    "🧟 You got lost and starved. You lost all your loot!"
 ]
 STRONGHOLD_LOOT = {
                 1:{"wood":{"min":1,"max":3},
@@ -106,7 +106,7 @@ class PathButtons(discord.ui.View):
             embed = discord.Embed(title=f"Stronghold - Room {next_level}", color=discord.Color.dark_green())
             embed.add_field(name="🎁 Loot Found This Level", value="\n".join(f"{v}× {k}" for k, v in loot.items()), inline=False)
             embed.add_field(name="📦 Total Loot", value="\n".join(f"{v}× {k}" for k, v in self.collected.items()), inline=False)
-            embed.set_footer(text="Choose a door...")
+            embed.set_footer(text="Choose a path...")
 
             next_view = PathButtons(next_level, self.collected, self.player_id, self.db_pool)
             await interaction.response.edit_message(embed=embed, view=next_view)
