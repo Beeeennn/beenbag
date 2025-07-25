@@ -47,7 +47,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 #hold an asyncpg pool here
 db_pool: asyncpg.Pool = None
 cc.init_cc(db_pool)
-u.init_util(db_pool)
 
 async def hourly_channel_exp_flush():
     await bot.wait_until_ready()
