@@ -1366,12 +1366,20 @@ async def c_generate_aquarium(ctx, who):
         row = await conn.fetch("""
         SELECT color1, color2, type
         FROM aquarium                 
-        WHERE user_id = $1    
+        WHERE user_id = $1
+        ORDER BY time_caught DESC
+        LIMIT 20    
                          """,
                          user_id)
     fish_specs = []
     for r in row:
         fish_specs += [[r["color1"],r["color2"],r["type"]]]
+
+    unique_color1 = set(f[0] for f in fish_specs)
+    unique_color2 = set(f[1] for f in fish_specs)
+    unique_types  = set(f[2] for f in fish_specs)
+
+    food = unique_color1 + unique_color2 + unique_types
     if len(fish_specs) > 20:
         raise ValueError("You can only place up to 20 fish.")
     aquarium = Image.open(background_path).convert("RGBA")
@@ -1403,10 +1411,14 @@ async def c_generate_aquarium(ctx, who):
         tinted_base = await tint_image(base, color1)
         tinted_overlay = await tint_image(overlay, color2)
         fish_image = Image.alpha_composite(tinted_base, tinted_overlay)
+        scale = 2
+        new_size = (fish_image.width * scale, fish_image.height * scale)
+        fish_image = fish_image.resize(new_size, resample=Image.NEAREST)
 
         # Randomly flip 50% of fish
         if random.choice([True, False]):
             fish_image = ImageOps.mirror(fish_image)
+            
         # Place it
         tries = 0
         while tries < 1000:
@@ -1426,4 +1438,4 @@ async def c_generate_aquarium(ctx, who):
     buf = io.BytesIO()
     result.save(buf, format="PNG")
     buf.seek(0)
-    await ctx.send(f"**{member.display_name}'s Aquarium**!", file=discord.File(buf, "aquarium.png"))
+    await ctx.send(f"**{member.display_name}'s Aquarium**! (generates **{food}** fish food every 30 minutes)", file=discord.File(buf, "aquarium.png"))
