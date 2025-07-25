@@ -46,7 +46,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 #hold an asyncpg pool here
 db_pool: asyncpg.Pool = None
-cc.init_cc(db_pool)
 
 async def hourly_channel_exp_flush():
     await bot.wait_until_ready()
@@ -145,7 +144,8 @@ async def init_db():
     """Create a connection pool """
     global db_pool
     db_pool = await asyncpg.create_pool(DATABASE_URL)
-    logging.info("Postgres connected and hi_counts table ready")
+    cc.init_cc(db_pool)
+    logging.info("Postgres connected")
 
 # HTTP endpoints
 async def handle_ping(request):
