@@ -100,8 +100,8 @@ DROP_TABLES = {
     "wood":    {"cobblestone": 80, "iron": 15, "gold": 4,  "diamond": 1},
     "stone":   {"cobblestone": 70, "iron": 20, "gold": 8, "diamond": 2},
     "iron":    {"cobblestone": 50, "iron": 30, "gold": 16, "diamond": 4},
-    "gold":    {"cobblestone": 25, "iron": 30, "gold": 30, "diamond": 15},
-    "diamond": {"cobblestone": 20, "iron": 20, "gold": 35, "diamond": 25},
+    "gold":    {"cobblestone": 25, "iron": 25, "gold": 25, "diamond": 25},
+    "diamond": {"cobblestone": 10, "iron": 10, "gold": 35, "diamond": 45},
 }
 
 SWORDS = {
