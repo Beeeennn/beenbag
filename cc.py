@@ -783,7 +783,9 @@ async def c_sac(ctx, mob_name: str):
     # validate mob
     if key not in MOBS:
         return await ctx.send(f"❌ I don’t recognize **{mob_name}**.")
-
+    rarity = MOBS[key]["rarity"]
+    rar_info = RARITIES[rarity]
+    reward  = rar_info["emeralds"]
     async with db_pool.acquire() as conn:
         # check barn
         rec = await conn.fetchrow(
