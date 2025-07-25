@@ -103,20 +103,25 @@ async def c_linkyt(ctx, channel_name: str):
         await ctx.send(
             f"{ctx.author.mention} I couldn’t DM you—please enable DMs from server members and try again (Content and social -> Social Permissions -> Direct Messages) You can turn it back off after.")
 
-async def c_yt(ctx, member: discord.Member = None):
+async def c_yt(ctx, who = None):
     """
     Show the YouTube channel linked to a user.
     Usage:
       !yt             → your own channel
       !yt @Someone    → their channel
     """
+    """Show your current level and progress toward the next level."""
+    # Resolve who → Member (or fallback to author)
+    if who is None:
+        member = ctx.author
+    else:
+        member = await resolve_member(ctx, who)
+        if member is None:
+            return await ctx.send("Member not found.")  # or "Member not found."
+    user_id = member.id
     # 0) Restrict to LINK_CHANNELS
     if ctx.channel.id not in LINK_CHANNELS:
         return await ctx.send("❌ You can’t do that here.")
-
-    # 1) Determine whose data to look up
-    target  = member or ctx.author
-    user_id = target.id
 
     # 2) Fetch from accountinfo
     async with db_pool.acquire() as conn:
@@ -131,12 +136,12 @@ async def c_yt(ctx, member: discord.Member = None):
 
     # 3) No link yet?
     if not row or (not row["yt_channel_name"] and not row["yt_channel_id"]):
-        if target == ctx.author:
+        if member == ctx.author:
             return await ctx.send(
                 "You haven’t linked a YouTube channel! Use `!linkyt <channel name>`."
             )
         else:
-            return await ctx.send(f"{target.display_name} hasn’t linked YT yet.")
+            return await ctx.send(f"{member.display_name} hasn’t linked YT yet.")
 
     # 4) Build URL
     name = row["yt_channel_name"]
@@ -148,7 +153,7 @@ async def c_yt(ctx, member: discord.Member = None):
 
     # 5) Send embed
     embed = discord.Embed(
-        title=f"{target.display_name}'s YouTube",
+        title=f"{member.display_name}'s YouTube",
         url=url, color=discord.Color.red()
     )
     embed.add_field(name="Channel Name", value=name or "–", inline=True)

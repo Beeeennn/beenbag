@@ -143,6 +143,10 @@ async def give_fish_food_task():
     while not bot.is_closed():
         async with db_pool.acquire() as conn:
             # Step 1: Get all users with fish
+            await conn.execute("""
+                DELETE FROM aquarium
+                WHERE time_caught < NOW() - INTERVAL '1 day'
+            """)
             rows = await conn.fetch("""
                 SELECT user_id, color1, color2, type
                 FROM (
@@ -361,6 +365,13 @@ async def on_message(message):
 #############################################################################################################################################################################
 
 
+@bot.command(name="linkyt")
+async def linkyt(ctx, *, channel_name: str):
+    await cc.c_linkyt(ctx,channel_name)
+
+@bot.command(name="yt")
+async def yt(ctx, *, who = None):
+    await cc.c_yt(ctx, who)
 
 
 
