@@ -1242,7 +1242,7 @@ async def c_upbarn(ctx):
         )
 
         await conn.fetchrow(
-            "UPDATE new_players SET barn_size = barn_size+1",
+            "UPDATE new_players SET barn_size = barn_size+1 WHERE user_id = $1",
             user_id
         )
         # 7) Fetch post‐upgrade values
@@ -1279,7 +1279,9 @@ async def tint_image(image: Image.Image, tint: tuple[int, int, int]) -> Image.Im
 
     return result
 
-async def make_fish(ctx,fish_path: str) -> io.BytesIO:
+async def make_fish(ctx,fish_path: str):
+    if random.choice([True,False]):
+        return await ctx.send("You caught a sea pickle, yuck!!! you throw it back in the ocean")
     user_id = ctx.author.id
     # Pick 2 distinct colors
     color_names = random.sample(list(MINECRAFT_COLORS.keys()), 2)

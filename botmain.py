@@ -502,7 +502,7 @@ async def upbarn(ctx):
 @commands.cooldown(1, 90, commands.BucketType.user)
 @bot.command(name="fish")
 async def fish(ctx):
-    image_bytes = await cc.make_fish(ctx, "assets/fish/")
+    await cc.make_fish(ctx, "assets/fish/")
 @fish.error
 async def fish_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
