@@ -1291,7 +1291,7 @@ async def make_fish(ctx,fish_path: str) -> io.BytesIO:
         await conn.execute(
             """
             INSERT INTO aquarium (user_id,color1,color2,type)
-            VALUES $1,$2,$3,$4
+            VALUES ($1,$2,$3,$4)
             """,
             user_id,color1,color2,typef
         )
