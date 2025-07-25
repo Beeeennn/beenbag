@@ -472,13 +472,7 @@ async def chop_error(ctx, error):
 
 @bot.command(name="stronghold")
 async def stronghold(ctx):
-    view = PathButtons(level=0, collected={}, player_id=ctx.author.id, db_pool=db_pool)
-    embed = discord.Embed(
-        title="🏰 Stronghold - Room 0",
-        description="Choose a door to begin your descent...",
-        color=discord.Color.gold()
-    )
-    await ctx.send(embed=embed, view=view)
+    await cc.c_stronghold(ctx)
 
 @bot.command(name="mine")
 @commands.cooldown(1, 120, commands.BucketType.user)

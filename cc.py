@@ -14,7 +14,7 @@ from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
 import string
 import secrets
-import re
+from stronghold import PathButtons
 from constants import *
 from utils import *
 
@@ -1572,3 +1572,18 @@ async def c_use(ctx, bot, item_name, quantity):
         
 
     await ctx.send(f"✅ You used {quantity} **{item_name}**!")
+
+async def stronghold(ctx):
+    async with db_pool.acquire() as conn:
+        cobble = get_items(conn, ctx.author.id, "cobblestone")
+        if cobble < 0:
+            return await ctx.send(f"❌ You need 8 cobblestone or a dungeon key to enter")
+        if ctx.author.id != 674671907626287151:
+            take_items(ctx.author.id, "cobblestone", 8, conn)
+    view = PathButtons(level=0, collected={}, player_id=ctx.author.id, db_pool=db_pool)
+    embed = discord.Embed(
+        title="Stronghold - Room 0",
+        description="Choose a door to begin your descent...",
+        color=discord.Color.gold()
+    )
+    await ctx.send(embed=embed, view=view)
