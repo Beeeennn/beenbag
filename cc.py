@@ -1446,3 +1446,111 @@ async def c_generate_aquarium(ctx, who):
     result.save(buf, format="PNG")
     buf.seek(0)
     await ctx.send(f"**{member.display_name}'s Aquarium**! (generates **{food}** fish food every 30 minutes)", file=discord.File(buf, "aquarium.png"))
+
+async def c_use(ctx, bot, item_name, quantity):
+    user_id = ctx.author.id
+    item_name = item_name.lower()
+
+    if quantity <= 0:
+        return await ctx.send("❌ Quantity must be greater than 0.")
+    
+    # allow "exp" shortcut for "Exp Bottle"
+    if item_name in ("exp", "experience"):
+        item_name = "exp bottle"
+    elif item_name in ("pack", "mob pack", "mystery mob pack"):
+        item_name = "mystery animal"
+    elif item_name in ("boss ticket","ticket","mob ticket","boss mob"):
+        item_name = "boss mob ticket"
+    else:
+        pass
+
+    async with db_pool.acquire() as conn:
+        # Check if they have it and it’s useable
+        row = await conn.fetchrow("""
+            SELECT quantity, useable
+            FROM player_items
+            WHERE player_id = $1 AND item_name = $2
+        """, user_id, item_name)
+
+        if not row:
+            return await ctx.send(f"❌ You don’t have any **{item_name}**.")
+        if not row["useable"]:
+            return await ctx.send(f"❌ **{item_name}** cannot be used.")
+        if row["quantity"] < quantity:
+            return await ctx.send(f"❌ You only have {row['quantity']} **{item_name}**.")
+        if item_name == "fish food" and row["quantity"]%100 != 0:
+            return await ctx.send(f"❌ You must put an amount of fish food divisible by 100.")
+        # Deduct quantity or delete
+        remaining = row["quantity"] - quantity
+        if remaining > 0:
+            await conn.execute("""
+                UPDATE player_items
+                SET quantity = $1
+                WHERE player_id = $2 AND item_name = $3
+            """, remaining, user_id, item_name)
+        else:
+            await conn.execute("""
+                DELETE FROM player_items
+                WHERE player_id = $1 AND item_name = $2
+            """, user_id, item_name)
+    # 🎉 Effect (optional)
+    if item_name == "mystery animal":
+        got = []
+        mobs = ([m for m,v in MOBS.items() if not v["hostile"]])
+        rarities = [MOBS[name]["rarity"] for name in mobs]
+        max_r = max(rarities)
+        weights = [(2**(max_r + 1-r)) for r in rarities]
+        async with db_pool.acquire() as conn:      
+            for _ in range(quantity): 
+                is_golden = (random.randint(0,20)==16)             
+                mobs = ([m for m,v in MOBS.items() if not v["hostile"]])
+                mob = random.choices(mobs, weights=weights, k=1)[0]
+                
+                await conn.execute(
+                    "INSERT INTO barn_upgrades (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
+                    user_id
+                )
+                # count current barn occupancy
+                occ = await conn.fetchval(
+                    "SELECT COALESCE(SUM(count),0) FROM barn WHERE user_id = $1",
+                    user_id
+                )
+                size = await conn.fetchval(
+                    "SELECT barn_size FROM new_players WHERE user_id = $1",
+                    user_id
+                )
+                if occ >= size:
+                    sac = True
+                    reward = await sucsac(ctx.channel,ctx.author,mob,is_golden,"because the barn was too full",conn)
+                    note = f"sacrificed for {reward} emeralds (barn is full)."
+                    
+                elif MOBS[mob]["hostile"]:
+                    sac = True
+                    reward = await sucsac(ctx.channel,ctx.author,mob,is_golden,"because the mob is hostile",conn)
+                    note = f"this mob is not catchable so it was sacrificed for {reward} emeralds"
+                else:
+                    await give_mob(conn, user_id, mob)
+                    got.append(mob)
+                await asyncio.sleep(1) 
+        # summarize what they got
+        summary = {}
+        for m in got:
+            summary[m] = summary.get(m, 0) + 1
+        lines = [f"**{cnt}× {name}**" for name,cnt in summary.items()]
+        await ctx.send(f"Mystery pack used:\n" + "\n".join(lines))
+    elif item_name == "exp bottle":
+        async with db_pool.acquire() as conn:
+            await gain_exp(conn,bot,user_id,quantity)
+    elif item_name == "fish food":        
+        emeralds_to_give = quantity // 100
+        await give_items(user_id, "emeralds", emeralds_to_give,"emeralds",False,conn)
+        await ctx.send(f"💠 You traded {quantity} fish food for {emeralds_to_give} emeralds!")
+    elif item_name == "boss mob ticket":
+        # ID of the user to ping (as a mention)
+        special_user_id = 674671907626287151
+        mention = f"<@{special_user_id}>"
+
+        await ctx.send(f"🎫 You used a mob ticket! {mention}, a ticket has been claimed!")
+        
+
+    await ctx.send(f"✅ You used {quantity} **{item_name}**!")

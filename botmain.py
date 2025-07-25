@@ -510,6 +510,16 @@ async def barn(ctx, *, who: str = None):
 async def upbarn(ctx):
     await cc.c_upbarn(ctx)
 
+@bot.command(name="use")
+async def use(ctx, *, args:str):
+    try:
+        *item_parts, qty_str = args.strip().rsplit(" ", 1)
+        item_name = " ".join(item_parts).lower()
+        quantity = int(qty_str)
+        cc.c_use(ctx,bot,item_name,quantity)
+    except ValueError:
+        return await ctx.send("❌ Use it like `!use item_name quantity` (e.g. `!use fish food 3`).")
+
 @commands.cooldown(1, 90, commands.BucketType.user)
 @bot.command(name="fish")
 async def fish(ctx):
