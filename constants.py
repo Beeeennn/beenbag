@@ -183,3 +183,21 @@ COLOR_MAP = {
 AXEWOOD = {None:1,"wood":2,"stone":3,"iron":4,"gold":5,"diamond":6}
 # Spawn channels
 SPAWN_CHANNEL_IDS = [1396534538498343002, 1396534603854123088,1396534658656763974,1396534732682035250]
+
+MINECRAFT_COLORS = {
+    "orange":    (255, 165, 0),
+    "magenta":   (255, 0, 255),
+    "light_blue": (102, 153, 216),
+    "yellow":    (255, 255, 0),
+    "lime":      (128, 255, 0),
+    "pink":      (255, 192, 203),
+    "gray":      (85, 85, 85),
+    "cyan":      (0, 255, 255),
+    "purple":    (128, 0, 128),
+    "blue":      (0, 0, 255),
+    "brown":     (139, 69, 19),
+    "green":     (0, 128, 0),
+    "red":       (255, 0, 0)
+}
+FISHTYPES = ["flopper","stripey","glitter","blockfish","betty","clayfish","kob","sunstreak","snooper","dasher","brinely","spotty"]
+

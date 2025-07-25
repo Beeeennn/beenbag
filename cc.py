@@ -1258,3 +1258,24 @@ async def c_upbarn(ctx):
         f"{ctx.author.mention} upgraded their barn from **{current_size}** to **{new_size}** slots "
         f"for 🌳 **{next_cost} wood**! You now have **{new_wood} wood**."
     )
+async def make_fish(fish_path: str) -> BytesIO:
+    # Pick 2 distinct colors
+    color_names = random.sample(list(MINECRAFT_COLORS.keys()), 2)
+    color1 = MINECRAFT_COLORS[color_names[0]]
+    color2 = MINECRAFT_COLORS[color_names[1]]
+    typef = random.choice(FISHTYPES)
+
+    base_path = f"{fish_path}{typef}/base.png"
+    overlay_path = f"{fish_path}{typef}/overlay.png"
+    base = Image.open(base_path).convert("RGBA")
+    overlay = Image.open(overlay_path).convert("RGBA")
+
+    tinted_base = tint_image(base, color1)
+    tinted_overlay = tint_image(overlay, color2)
+
+    result = Image.alpha_composite(tinted_base, tinted_overlay)
+
+    buf = BytesIO()
+    result.save(buf, format="PNG")
+    buf.seek(0)
+    return buf

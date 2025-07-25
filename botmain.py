@@ -458,6 +458,10 @@ async def barn(ctx, *, who: str = None):
 async def upbarn(ctx):
     await cc.c_upbarn(ctx)
 
+@bot.command(name="fish")
+async def fish(ctx):
+    image_bytes = cc.make_fish("assets/fish/")
+    await ctx.send("🎣 You caught a fish!", file=discord.File(image_bytes, "fish.png"))
 
 def pixelate(img: Image.Image, size: int) -> Image.Image:
     """Downscale to (size×size) then upscale back, nearest-neighbor."""
