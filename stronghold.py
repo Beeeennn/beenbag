@@ -55,7 +55,7 @@ class PathButtons(discord.ui.View):
         self.collected = collected
         self.player_id = player_id
         self.db_pool = db_pool
-        self.death_path = random.randint(1, 4)
+        self.death_path = random.randint(1, 3)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return interaction.user.id == self.player_id
@@ -71,7 +71,7 @@ class PathButtons(discord.ui.View):
                 return
 
             # Survived — gain loot and go to next level
-            self.death_path = random.randint(1, 4)
+            self.death_path = random.randint(1, 3)
             next_level = self.level + 1
             current_tier = max([lvl for lvl in STRONGHOLD_LOOT.keys() if lvl <= next_level])
             loot_table = STRONGHOLD_LOOT[current_tier]
@@ -134,10 +134,6 @@ class PathButtons(discord.ui.View):
     @discord.ui.button(label="Path 3", style=discord.ButtonStyle.primary)
     async def path3(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_choice(interaction, 3)
-
-    @discord.ui.button(label="Path 4", style=discord.ButtonStyle.primary)
-    async def path4(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_choice(interaction, 4)
 
     @discord.ui.button(label="Leave", style=discord.ButtonStyle.danger)
     async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
