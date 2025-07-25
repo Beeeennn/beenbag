@@ -1486,12 +1486,12 @@ async def c_use(ctx, bot, item_name, quantity):
             await conn.execute("""
                 UPDATE player_items
                 SET quantity = $1
-                WHERE player_id = $2 AND item_name = $3
+                WHERE player_id = $2 AND LOWER(item_name) = $3
             """, remaining, user_id, item_name)
         else:
             await conn.execute("""
                 DELETE FROM player_items
-                WHERE player_id = $1 AND item_name = $2
+                WHERE player_id = $1 AND LOWER(item_name) = $2
             """, user_id, item_name)
     # 🎉 Effect (optional)
     if item_name == "mystery mob pack":
