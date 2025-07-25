@@ -516,9 +516,9 @@ async def use(ctx, *, args:str):
         *item_parts, qty_str = args.strip().rsplit(" ", 1)
         item_name = " ".join(item_parts).lower()
         quantity = int(qty_str)
-        cc.c_use(ctx,bot,item_name,quantity)
+        await cc.c_use(ctx,bot,item_name,quantity)
     except ValueError:
-        return await ctx.send("❌ Use it like `!use item_name quantity` (e.g. `!use fish food 3`).")
+        return await ctx.send("❌ Use it like `!use item_name quantity` (e.g. `!use fish food 100`).")
 
 @commands.cooldown(1, 90, commands.BucketType.user)
 @bot.command(name="fish")
