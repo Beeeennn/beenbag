@@ -1411,7 +1411,7 @@ async def c_generate_aquarium(ctx, who):
         tinted_base = await tint_image(base, color1)
         tinted_overlay = await tint_image(overlay, color2)
         fish_image = Image.alpha_composite(tinted_base, tinted_overlay)
-        scale = 2
+        scale = 1
         new_size = (fish_image.width * scale, fish_image.height * scale)
         fish_image = fish_image.resize(new_size, resample=Image.NEAREST)
 
@@ -1422,8 +1422,8 @@ async def c_generate_aquarium(ctx, who):
         # Place it
         tries = 0
         while tries < 1000:
-            x = random.randint(edge_buffer, width - fish_size - edge_buffer)
-            y = random.randint(edge_buffer, height - fish_size - edge_buffer)
+            x = random.randint(edge_buffer, width - fish_size*scale - edge_buffer)
+            y = random.randint(edge_buffer, height - fish_size*scale - edge_buffer)
             if is_valid_position(x, y):
                 aquarium.alpha_composite(fish_image, (x, y))
                 placed_positions.append((x, y))
