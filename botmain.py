@@ -449,17 +449,6 @@ async def givemob(ctx, who: str , mob_name: str, count: int = 1):
 async def sacrifice(ctx, *, mob_name: str):
     await cc.c_sac(ctx,mob_name)
 
-@bot.command(name="stronghold")
-async def stronghold(ctx):
-    view = PathButtons(level=0, collected={}, player_id=ctx.author.id, db_pool=db_pool)
-    embed = discord.Embed(
-        title="Stronghold - Room 0",
-        description="Choose a door to begin your descent...",
-        color=discord.Color.gold()
-    )
-    await ctx.send(embed=embed, view=view)
-
-    
 @bot.command(name="bestiary",aliases =["bs","bes"])
 async def bestiary(ctx, *, who: str = None):
     await cc.c_bestiary(ctx,who)
@@ -480,6 +469,16 @@ async def chop_error(ctx, error):
     # For any other errors, let them bubble up
     raise error
 
+
+@bot.command(name="stronghold")
+async def stronghold(ctx):
+    view = PathButtons(level=0, collected={}, player_id=ctx.author.id, db_pool=db_pool)
+    embed = discord.Embed(
+        title="🏰 Stronghold - Room 0",
+        description="Choose a door to begin your descent...",
+        color=discord.Color.gold()
+    )
+    await ctx.send(embed=embed, view=view)
 
 @bot.command(name="mine")
 @commands.cooldown(1, 120, commands.BucketType.user)
