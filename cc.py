@@ -311,7 +311,8 @@ async def c_craft(ctx, args):
 
         # Deduct resources
         await take_items(user_id,"wood",wood_cost,conn)
-        await take_items(user_id,ore_col,ore_cost,conn)
+        if ore_col:
+            await take_items(user_id,ore_col,ore_cost,conn)
 
         # Give the tool
         await conn.execute("""
