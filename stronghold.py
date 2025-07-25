@@ -76,10 +76,13 @@ class PathButtons(discord.ui.View):
             current_tier = max([lvl for lvl in STRONGHOLD_LOOT.keys() if lvl <= next_level])
             loot_table = STRONGHOLD_LOOT[current_tier]
 
-            loot = {}
-            for item, bounds in loot_table.items():
-                loot[item] = random.randint(bounds["min"], bounds["max"])
+            # Pick a single reward
+            item = random.choice(list(loot_table.keys()))
+            bounds = loot_table[item]
+            amount = random.randint(bounds["min"], bounds["max"])
+            loot = {item: amount}
 
+            # Update collected loot
             for item, amt in loot.items():
                 self.collected[item] = self.collected.get(item, 0) + amt
 
