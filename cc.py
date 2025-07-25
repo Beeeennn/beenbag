@@ -1258,7 +1258,27 @@ async def c_upbarn(ctx):
         f"{ctx.author.mention} upgraded their barn from **{current_size}** to **{new_size}** slots "
         f"for 🌳 **{next_cost} wood**! You now have **{new_wood} wood**."
     )
-async def make_fish(fish_path: str) -> BytesIO:
+async def tint_image(image: Image.Image, tint: tuple[int, int, int]) -> Image.Image:
+    """Tint an image with built-in shading (white/gray base), preserving shading."""
+    image = image.convert("RGBA")
+    width, height = image.size
+
+    result = Image.new("RGBA", (width, height))
+
+    for x in range(width):
+        for y in range(height):
+            r, g, b, a = image.getpixel((x, y))
+            if a == 0:
+                result.putpixel((x, y), (0, 0, 0, 0))
+                continue
+
+            brightness = r / 255
+            tinted = tuple(int(c * brightness) for c in tint)
+            result.putpixel((x, y), (*tinted, a))
+
+    return result
+
+async def make_fish(fish_path: str) -> io.BytesIO:
     # Pick 2 distinct colors
     color_names = random.sample(list(MINECRAFT_COLORS.keys()), 2)
     color1 = MINECRAFT_COLORS[color_names[0]]
@@ -1270,12 +1290,12 @@ async def make_fish(fish_path: str) -> BytesIO:
     base = Image.open(base_path).convert("RGBA")
     overlay = Image.open(overlay_path).convert("RGBA")
 
-    tinted_base = tint_image(base, color1)
-    tinted_overlay = tint_image(overlay, color2)
+    tinted_base =await tint_image(base, color1)
+    tinted_overlay =await tint_image(overlay, color2)
 
     result = Image.alpha_composite(tinted_base, tinted_overlay)
 
-    buf = BytesIO()
+    buf = io.BytesIO()
     result.save(buf, format="PNG")
     buf.seek(0)
     return buf

@@ -461,7 +461,7 @@ async def upbarn(ctx):
 @commands.cooldown(1, 90, commands.BucketType.user)
 @bot.command(name="fish")
 async def fish(ctx):
-    image_bytes = cc.make_fish("assets/fish/")
+    image_bytes = await cc.make_fish("assets/fish/")
     await ctx.send("🎣 You caught a fish!", file=discord.File(image_bytes, "fish.png"))
 
 def pixelate(img: Image.Image, size: int) -> Image.Image:
