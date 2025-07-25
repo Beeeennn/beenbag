@@ -463,8 +463,8 @@ async def upbarn(ctx):
 @bot.command(name="fish")
 
 async def fish(ctx):
-    image_bytes = await cc.make_fish("assets/fish/")
-    await ctx.send("🎣 You caught a fish!", file=discord.File(image_bytes, "fish.png"))
+    image_bytes = await cc.make_fish(ctx, "assets/fish/")
+    
 
 @fish.error
 async def fish_error(ctx, error):

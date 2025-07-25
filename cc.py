@@ -1278,12 +1278,52 @@ async def tint_image(image: Image.Image, tint: tuple[int, int, int]) -> Image.Im
 
     return result
 
-async def make_fish(fish_path: str) -> io.BytesIO:
+async def make_fish(ctx,fish_path: str) -> io.BytesIO:
+    user_id = ctx.author.id
     # Pick 2 distinct colors
     color_names = random.sample(list(MINECRAFT_COLORS.keys()), 2)
     color1 = MINECRAFT_COLORS[color_names[0]]
     color2 = MINECRAFT_COLORS[color_names[1]]
     typef = random.choice(FISHTYPES)
+    async with db_pool.acquire() as conn:
+        await ensure_player(conn,ctx.author.id)
+        await conn.execute(
+            """
+            INSERT INTO aquarium (user_id,color1,color2,type)
+            VALUES $1,$2,$3,$4
+            """,
+            user_id,color1,color2,typef
+        )
+                
+        # 1) Fetch all usable rods
+        rods = await conn.fetch(
+            """
+            SELECT tier, uses_left
+              FROM tools
+             WHERE user_id = $1
+               AND tool_name = 'fishing_rod'
+               AND uses_left > 0
+            """,
+            user_id
+        )
+        
+        if not rods:
+            ctx.command.reset_cooldown(ctx)
+            return await ctx.send(
+                "❌ You need a fishing rod with at least 1 use to mine! Craft one with `!craft fishing rod`."
+            )
+        
+        # 3) Consume 1 use on that rod
+        await conn.execute(
+            """
+            UPDATE tools
+               SET uses_left = uses_left - 1
+             WHERE user_id = $1
+               AND tool_name = 'fishing_rod'
+               AND uses_left > 0
+            """,
+            user_id
+        )
 
     base_path = f"{fish_path}{typef}/base.png"
     overlay_path = f"{fish_path}{typef}/overlay.png"
@@ -1301,4 +1341,4 @@ async def make_fish(fish_path: str) -> io.BytesIO:
     buf = io.BytesIO()
     result.save(buf, format="PNG")
     buf.seek(0)
-    return buf
+    await ctx.send(f"🎣 You caught a **{color1} and {color2} {typef}**!", file=discord.File(buf, "fish.png"))
