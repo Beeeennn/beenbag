@@ -265,11 +265,12 @@ async def on_message(message):
             )
             if occ >= size:
                 sac = True
-                reward = await u.sucsac(message.channel,message.author.id,mob_name,is_golden,"because the barn was too full",conn)
+                reward = await u.sucsac(message.channel,message.author,mob_name,is_golden,"because the barn was too full",conn)
                 note = f"sacrificed for {reward} emeralds (barn is full)."
                 
             elif MOBS[mob_name]["hostile"]:
-                reward = await u.sucsac(message.channel,message.author.id,mob_name,is_golden,"because the mob is hostile",conn)
+                sac = True
+                reward = await u.sucsac(message.channel,message.author,mob_name,is_golden,"because the mob is hostile",conn)
                 note = f"this mob is not catchable so it was sacrificed for {reward} emeralds"
                 
             else:
@@ -296,20 +297,20 @@ async def on_message(message):
             rarity = MOBS[mob_name]["rarity"]
             rar_info = RARITIES[rarity]
             color    = COLOR_MAP[rar_info["colour"]]
-
-            # build and send the embed
-            embed = discord.Embed(
-                title=f"🏆 {message.author.display_name} caught a {'✨ Golden ' if is_golden else ''} {RARITIES[rarity]["name"]} {mob_name}!",
-                description=f"{note}",
-                color=color
-            )
-            embed.add_field(
-                name="Rarity",
-                value=rar_info["name"].title(),
-                inline=True
-            )
-            await message.channel.send(embed=embed)
-            # skip further processing (so they don’t also run a command)
+            if sac:
+                # build and send the embed
+                embed = discord.Embed(
+                    title=f"🏆 {message.author.display_name} caught a {'✨ Golden ' if is_golden else ''} {RARITIES[rarity]["name"]} {mob_name}!",
+                    description=f"{note}",
+                    color=color
+                )
+                embed.add_field(
+                    name="Rarity",
+                    value=rar_info["name"].title(),
+                    inline=True
+                )
+                await message.channel.send(embed=embed)
+                # skip further processing (so they don’t also run a command)
             return
 
     await bot.process_commands(message)
