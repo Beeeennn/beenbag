@@ -519,17 +519,6 @@ async def barn(ctx, *, who: str = None):
 async def upbarn(ctx):
     await cc.c_upbarn(ctx)
 
-@bot.command()
-async def stronghold(ctx):
-    embed = discord.Embed(
-        title="🏰 Stronghold - Room 1",
-        description="You enter the first room of the Stronghold.\nChoose a door below.",
-        color=discord.Color.dark_green()
-    )
-
-    view = PathButtons(level=1, collected={}, player_id=ctx.author.id)
-    await ctx.send(embed=embed, view=view)
-
 @bot.command(name="use")
 async def use(ctx, *, args:str):
     try:
