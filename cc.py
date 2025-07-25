@@ -1294,7 +1294,10 @@ async def make_fish(fish_path: str) -> io.BytesIO:
     tinted_overlay =await tint_image(overlay, color2)
 
     result = Image.alpha_composite(tinted_base, tinted_overlay)
-
+    # 🔍 Scale up 20× using nearest neighbor to preserve pixel style
+    scale = 20
+    new_size = (result.width * scale, result.height * scale)
+    result = result.resize(new_size, resample=Image.NEAREST)
     buf = io.BytesIO()
     result.save(buf, format="PNG")
     buf.seek(0)
