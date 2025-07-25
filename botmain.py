@@ -59,19 +59,19 @@ async def hourly_channel_exp_flush():
             """)
             # zero them out
             await conn.execute("UPDATE channel_exp SET exp = 0 WHERE exp > 0")
-        # hand each off to your existing gain_exp (which updates DB + roles)
-        for record in rows:
-            uid = await conn.fetch("""
-                                      SELECT discord_id, yt_channel_name
-                                      FROM accountinfo
-                                      WHERE yt_channel_id = $1                                      
-                                      """,record["channel_id"])
-            xp  = record["exp"]
-            name = uid["name"]
-            ch.send(f"Giving **{xp}** exp to **{name}** for watching my stream")
-            await asyncio.sleep(1)
-            # pass None for ctx so gain_exp just does DB+roles without messaging
-            await u.gain_exp(conn,bot,uid["discord_id"], xp, None)
+            # hand each off to your existing gain_exp (which updates DB + roles)
+            for record in rows:
+                uid = await conn.fetch("""
+                                        SELECT discord_id, yt_channel_name
+                                        FROM accountinfo
+                                        WHERE yt_channel_id = $1                                      
+                                        """,record["channel_id"])
+                xp  = record["exp"]
+                name = uid["name"]
+                ch.send(f"Giving **{xp}** exp to **{name}** for watching my stream")
+                await asyncio.sleep(1)
+                # pass None for ctx so gain_exp just does DB+roles without messaging
+                await u.gain_exp(conn,bot,uid["discord_id"], xp, None)
         # wait one hour
         await asyncio.sleep(3600)
 
@@ -218,11 +218,11 @@ async def on_message(message):
             """,
             message.author.id
         )
-    user_id = message.author.id
-    bucket = chat_xp_cd.get_bucket(message)
-    can_gain = bucket.update_rate_limit() is None
-    if can_gain:
-        await u.gain_exp(conn,bot,user_id,1,message)
+        user_id = message.author.id
+        bucket = chat_xp_cd.get_bucket(message)
+        can_gain = bucket.update_rate_limit() is None
+        if can_gain:
+            await u.gain_exp(conn,bot,user_id,1,message)
         
     # 0) Try to capture any active spawn in this channel
     name = message.content.strip().lower().replace(" ", "")
