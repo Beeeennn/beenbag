@@ -440,7 +440,7 @@ async def c_farm(ctx):
         avg = WHEAT_DROP[best_tier]
         drop = random.randint(avg-1,avg+1)
 
-        await give_items(user_id,"wheat",drop,"resource",conn)
+        await give_items(user_id,"wheat",drop,"resource",False,conn)
         # fetch new total
         total = await get_items(conn,user_id,"wheat")
 
@@ -576,21 +576,21 @@ async def c_buy(ctx, args):
     async with db_pool.acquire() as conn:
         if display_name == "Exp Bottle":
             await ctx.send(f"✅ Spent {total_cost} 💠 for an Exp Bottle with **{qty} EXP**! Say **!use Exp Bottle** to use them, you must use them all at once though")
-            await give_items(user_id,"Exp Bottle",qty,"items",conn)
+            await give_items(user_id,"Exp Bottle",qty,"items",True,conn)
 
         elif display_name == "Boss Mob Ticket":
             await ctx.send(
                 f"✅ You bought **{qty} Boss Mob Ticket{'s' if qty!=1 else ''}**! "
                 "Use `!use Ticket <mob name>` before stream to redeem, this allows you to say the name of the mob during the stream to spawn it, don't worry about typos, it will still be valid."
             )
-            await give_items(user_id,"Boss Mob Ticket",qty,"items",conn)
+            await give_items(user_id,"Boss Mob Ticket",qty,"items",True,conn)
 
         elif display_name == "Mystery Animal":
             await ctx.send(
                 f"✅ You bought **{qty} Mystery Mob Pack{'s' if qty!=1 else ''}**! "
                 "Use `!use Mob Pack` to redeem"
             )
-            await give_items(user_id,"Mystery Mob Pack",qty,"items",conn)
+            await give_items(user_id,"Mystery Mob Pack",qty,"items",True,conn)
 
         #     got = []
         #     mobs = ([m for m,v in MOBS.items() if not v["hostile"]])
@@ -928,7 +928,7 @@ async def c_chop(ctx):
         
         num = AXEWOOD[best_tier]
         # grant 1 wood
-        await give_items(user_id,"wood",num,"resource",conn)
+        await give_items(user_id,"wood",num,"resource",False,conn)
         await conn.execute(
             """
             UPDATE tools
@@ -999,7 +999,7 @@ async def c_mine(ctx):
         drop = random.choices(ores, weights=weights, k=1)[0]
 
         # 5) Grant the drop
-        await give_items(user_id,drop,1,"resource",conn)
+        await give_items(user_id,drop,1,"resource",False,conn)
         # fetch new total
         
         total = await get_items(conn, user_id, drop)

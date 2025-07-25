@@ -32,7 +32,7 @@ async def giverole(ctx, id, user):
         logging.info("❌ I don't have permission to give that role.")
     except Exception as e:
         logging.info(f"❌ Something went wrong: `{e}`")
-        
+
 async def sucsac(ctx, user, mob_name: str, is_gold, note, conn):
     """
     gives the correct reward for a mob and all of its emeralds
@@ -253,7 +253,7 @@ async def take_items(user_id: int, item: str, amount: int,conn):
             WHERE player_id = $1 AND item_name = $2
         """, user_id, item)
 
-async def give_items(user_id: int, item: str, amount: int, cat, conn):
+async def give_items(user_id: int, item: str, amount: int, cat, useable, conn):
     # Check if item already exists
     row = await conn.fetchrow("""
         SELECT quantity FROM player_items
@@ -270,8 +270,8 @@ async def give_items(user_id: int, item: str, amount: int, cat, conn):
     else:
         await conn.execute("""
             INSERT INTO player_items (player_id, item_name, category, quantity, useable)
-            VALUES ($1, $2, $3, $4, FALSE)
-        """, user_id, item, cat, amount)
+            VALUES ($1, $2, $3, $4, $5)
+        """, user_id, item, cat, amount, useable)
 
 async def get_items(conn,user_id, item):
 
