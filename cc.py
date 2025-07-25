@@ -253,7 +253,7 @@ async def c_give(ctx, who: str, mob: str):
         f"{'✨ ' if is_golden else ''}**{mob_name}** for 💠 **{reward}** emeralds!"
     )
 
-async def c_craft(ctx, *args):
+async def c_craft(ctx, args):
     """
     Usage: !craft <tool> <tier> 
     Usage:
