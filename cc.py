@@ -1404,8 +1404,8 @@ async def c_generate_aquarium(ctx, who):
     unique_types  = set(f[2] for f in fish_specs)
 
     food = len(unique_color1) + len(unique_color2) + len(unique_types)
-    if len(fish_specs) > 20:
-        raise ValueError("You can only place up to 20 fish.")
+    if len(fish_specs) > 30:
+        raise ValueError("You can only place up to 30 fish.")
     aquarium = Image.open(background_path).convert("RGBA")
     width, height = aquarium.size
     fish_size = 12
@@ -1462,7 +1462,7 @@ async def c_generate_aquarium(ctx, who):
     buf = io.BytesIO()
     result.save(buf, format="PNG")
     buf.seek(0)
-    await ctx.send(f"**{member.display_name}'s Aquarium**! (generates **{food}** fish food every 30 minutes)", file=discord.File(buf, "aquarium.png"))
+    await ctx.send(f"**{member.display_name}'s Aquarium**! (generates **{food}** fish food every 30 minutes with **{len(fish_specs)}** fish)", file=discord.File(buf, "aquarium.png"))
 
 async def c_use(ctx, bot, item_name, quantity):
     user_id = ctx.author.id
