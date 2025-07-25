@@ -172,7 +172,16 @@ CRAFT_RECIPES = {
     ("axe",     "gold"):    (1,    3,      "gold",        10),
     ("axe",     "diamond"): (1,    3,      "diamond",     10),
 }
-
+ITEMS = {"wood":{"useable":False,"category":"resource"},
+        "gold":{"useable":False,"category":"resource"},
+        "wheat":{"useable":False,"category":"resource"},
+        "cobblestone":{"useable":False,"category":"resource"},
+        "iron":{"useable":False,"category":"resource"},
+        "gold":{"useable":False,"category":"resource"},
+        "diamond":{"useable":False,"category":"resource"},
+        "emerald":{"useable":False,"category":"emeralds"},
+        "boss mob ticket":{"useable":True,"category":"items"}
+        }
 COLOR_MAP = {
     "white":  discord.Color.light_grey(),
     "green":  discord.Color.green(),

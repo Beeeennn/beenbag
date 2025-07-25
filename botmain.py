@@ -15,7 +15,7 @@ from collections import defaultdict
 from constants import *
 import utils as u
 import cc
-
+from stronghold import PathButtons
 
 chat_xp_cd = commands.CooldownMapping.from_cooldown(
     2,                # max tokens
@@ -449,7 +449,17 @@ async def givemob(ctx, who: str , mob_name: str, count: int = 1):
 async def sacrifice(ctx, *, mob_name: str):
     await cc.c_sac(ctx,mob_name)
 
+@bot.command(name="stronghold")
+async def stronghold(ctx):
+    view = PathButtons(level=0, collected={}, player_id=ctx.author.id, db_pool=db_pool)
+    embed = discord.Embed(
+        title="Stronghold - Room 0",
+        description="Choose a door to begin your descent...",
+        color=discord.Color.gold()
+    )
+    await ctx.send(embed=embed, view=view)
 
+    
 @bot.command(name="bestiary",aliases =["bs","bes"])
 async def bestiary(ctx, *, who: str = None):
     await cc.c_bestiary(ctx,who)
@@ -509,6 +519,17 @@ async def barn(ctx, *, who: str = None):
 @bot.command(name="upbarn")
 async def upbarn(ctx):
     await cc.c_upbarn(ctx)
+
+@bot.command()
+async def stronghold(ctx):
+    embed = discord.Embed(
+        title="🏰 Stronghold - Room 1",
+        description="You enter the first room of the Stronghold.\nChoose a door below.",
+        color=discord.Color.dark_green()
+    )
+
+    view = PathButtons(level=1, collected={}, player_id=ctx.author.id)
+    await ctx.send(embed=embed, view=view)
 
 @bot.command(name="use")
 async def use(ctx, *, args:str):
