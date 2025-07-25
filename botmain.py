@@ -458,6 +458,7 @@ async def barn(ctx, *, who: str = None):
 async def upbarn(ctx):
     await cc.c_upbarn(ctx)
 
+@commands.cooldown(1, 90, commands.BucketType.user)
 @bot.command(name="fish")
 async def fish(ctx):
     image_bytes = cc.make_fish("assets/fish/")
