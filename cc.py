@@ -355,7 +355,7 @@ async def c_breed(ctx, mob: str):
     async with db_pool.acquire() as conn:
         await ensure_player(conn,user_id)
         # 3) Check wheat balance
-        wheat_have =await get_items(conn,user_id,wheat)
+        wheat_have =await get_items(conn,user_id,"wheat")
         if wheat_have < wheat:
             return await ctx.send(
                 f"❌ You need **{wheat} wheat** to breed, but only have **{wheat_have}**."
