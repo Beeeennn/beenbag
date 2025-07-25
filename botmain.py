@@ -144,7 +144,7 @@ async def init_db():
     """Create a connection pool """
     global db_pool
     db_pool = await asyncpg.create_pool(DATABASE_URL)
-    cc.init_cc(db_pool)
+    await cc.init_cc(db_pool)
     logging.info("Postgres connected")
 
 # HTTP endpoints
