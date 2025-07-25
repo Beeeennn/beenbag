@@ -407,6 +407,7 @@ async def bestiary(ctx, *, who: str = None):
 @commands.cooldown(1, 60, commands.BucketType.user)  # 1 use per 60s per user
 async def chop(ctx):
     await cc.c_chop(ctx)
+
 @chop.error
 async def chop_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
@@ -460,9 +461,21 @@ async def upbarn(ctx):
 
 @commands.cooldown(1, 90, commands.BucketType.user)
 @bot.command(name="fish")
+
 async def fish(ctx):
     image_bytes = await cc.make_fish("assets/fish/")
     await ctx.send("🎣 You caught a fish!", file=discord.File(image_bytes, "fish.png"))
+
+@fish.error
+async def fish_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown):
+        retry = int(error.retry_after)  # seconds remaining
+        await ctx.send(
+            f"You are too tired to fish again. Try again in {retry} second{'s' if retry != 1 else ''}."
+        )
+        return
+    # For any other errors, let them bubble up
+    raise error
 
 def pixelate(img: Image.Image, size: int) -> Image.Image:
     """Downscale to (size×size) then upscale back, nearest-neighbor."""
