@@ -1392,7 +1392,7 @@ async def c_generate_aquarium(ctx, who):
         FROM aquarium                 
         WHERE user_id = $1
         ORDER BY time_caught DESC
-        LIMIT 20    
+        LIMIT 30    
                          """,
                          user_id)
     fish_specs = []
@@ -1548,7 +1548,7 @@ async def c_use(ctx, bot, item_name, quantity):
                 else:
                     await give_mob(conn, user_id, mob)
                     got.append(mob)
-                await asyncio.sleep(1) 
+                await asyncio.sleep(1)
         # summarize what they got
         summary = {}
         for m in got:

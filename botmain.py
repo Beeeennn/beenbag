@@ -155,7 +155,7 @@ async def give_fish_food_task():
                     ) as rn
                     FROM aquarium
                 ) AS ranked
-                WHERE rn <= 20
+                WHERE rn <= 30
             """)
 
             # Step 2: Group by user
