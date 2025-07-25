@@ -8,13 +8,10 @@ import asyncpg
 from aiohttp import web
 from PIL import Image
 import io
-import dateparser
 
 from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
-import string
-import secrets
-import re
+from collections import defaultdict
 from constants import *
 import utils as u
 import cc
@@ -140,6 +137,47 @@ async def daily_level_decay():
 
         # loop back around for the next midnight
 
+
+async def give_fish_food_task():
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        async with db_pool.acquire() as conn:
+            # Step 1: Get all users with fish
+            rows = await conn.fetch("""
+                SELECT user_id, color1, color2, type
+                FROM (
+                    SELECT *, ROW_NUMBER() OVER (
+                        PARTITION BY user_id ORDER BY time_caught DESC
+                    ) as rn
+                    FROM aquarium
+                ) AS ranked
+                WHERE rn <= 20
+            """)
+
+            # Step 2: Group by user
+            user_fish = defaultdict(list)
+            for r in rows:
+                user_fish[r["user_id"]].append((r["color1"], r["color2"], r["type"]))
+
+            # Step 3: For each user, compute unique count and update player_items
+            for user_id, fish_list in user_fish.items():
+                color1s = set(f[0] for f in fish_list)
+                color2s = set(f[1] for f in fish_list)
+                types   = set(f[2] for f in fish_list)
+                total_unique = len(color1s) + len(color2s) + len(types)
+
+                # Update fish food
+                await conn.execute("""
+                    INSERT INTO player_items (player_id, item_name, category, quantity, useable)
+                    VALUES ($1, 'fish food', 'resource', $2, TRUE)
+                    ON CONFLICT (player_id, item_name)
+                    DO UPDATE SET quantity = player_items.quantity + $2
+                """, user_id, total_unique)
+
+        print("✅ Fish food distributed.")
+        await asyncio.sleep(1800)  # Wait 30 minutes
+
+
 async def init_db():
     """Create a connection pool """
     global db_pool
@@ -162,6 +200,8 @@ async def on_ready():
         bot._channel_exp_task = bot.loop.create_task(hourly_channel_exp_flush())
     if not hasattr(bot, "_spawn_task"):
         bot._spawn_task = bot.loop.create_task(spawn_mob_loop())
+    if not hasattr(bot, "_fishfood_task"):
+        bot._fishfood_task = bot.loop.create_task(give_fish_food_task())
 
 
 @bot.event
