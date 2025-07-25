@@ -481,7 +481,7 @@ async def c_buy(ctx, args):
     Usage:
       !buy <item name> [quantity]
     Examples:
-      !buy Exp\ Bottle 5
+      !buy Exp Bottle 5
       !buy exp 100
     """
     if not args:
@@ -556,7 +556,7 @@ async def c_buy(ctx, args):
                 )
 
         # 5) Deduct emeralds
-        take_items(user_id,"emeralds",total_cost,conn)
+        await take_items(user_id,"emeralds",total_cost,conn)
 
         # 6) Log each purchase for history
         for _ in range(qty):
@@ -588,7 +588,7 @@ async def c_buy(ctx, args):
         elif display_name == "Mystery Animal":
             await ctx.send(
                 f"✅ You bought **{qty} Mystery Mob Pack{'s' if qty!=1 else ''}**! "
-                "Use `!use Ticket <mob name>` before stream to redeem, this allows you to say the name of the mob during the stream to spawn it, don't worry about typos, it will still be valid."
+                "Use `!use Mob Pack` to redeem"
             )
             await give_items(user_id,"Mystery Mob Pack",qty,"items",conn)
 
@@ -648,7 +648,7 @@ async def c_exp_cmd(ctx, who: str = None):
     total_exp = row["experience"] if row else 0
 
     # 2) Compute current & next levels
-    current_level =await  get_level_from_exp(total_exp)
+    current_level = get_level_from_exp(total_exp)
     max_level     = max(LEVEL_EXP.keys())
 
     if current_level < max_level:
