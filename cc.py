@@ -1379,7 +1379,7 @@ async def c_generate_aquarium(ctx, who):
     unique_color2 = set(f[1] for f in fish_specs)
     unique_types  = set(f[2] for f in fish_specs)
 
-    food = unique_color1 + unique_color2 + unique_types
+    food = len(unique_color1) + len(unique_color2) + len(unique_types)
     if len(fish_specs) > 20:
         raise ValueError("You can only place up to 20 fish.")
     aquarium = Image.open(background_path).convert("RGBA")
@@ -1418,7 +1418,7 @@ async def c_generate_aquarium(ctx, who):
         # Randomly flip 50% of fish
         if random.choice([True, False]):
             fish_image = ImageOps.mirror(fish_image)
-            
+
         # Place it
         tries = 0
         while tries < 1000:
