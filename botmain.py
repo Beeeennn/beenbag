@@ -296,7 +296,7 @@ async def on_message(message):
             rarity = MOBS[mob_name]["rarity"]
             rar_info = RARITIES[rarity]
             color    = COLOR_MAP[rar_info["colour"]]
-            if sac:
+            if not sac:
                 # build and send the embed
                 embed = discord.Embed(
                     title=f"🏆 {message.author.display_name} caught a {'✨ Golden ' if is_golden else ''} {RARITIES[rarity]["name"]} {mob_name}!",
