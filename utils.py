@@ -79,10 +79,7 @@ async def sucsac(ctx, user, mob_name: str, is_gold, note, conn):
     )
 
     # grant emeralds
-    await conn.execute(
-        "UPDATE new_players SET emeralds = emeralds + $1 WHERE discord_id = $2",
-        reward, user_id
-    )
+    await give_items(user_id,"emeralds",reward,"emeralds",False,conn)
     # record in sacrifice_history
     await conn.execute(
         """
