@@ -1469,7 +1469,7 @@ async def c_use(ctx, bot, item_name, quantity):
         row = await conn.fetchrow("""
             SELECT quantity, useable
             FROM player_items
-            WHERE player_id = $1 AND item_name = $2
+            WHERE player_id = $1 AND LOWER(item_name) = $2
         """, user_id, item_name)
 
         if not row:
