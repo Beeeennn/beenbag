@@ -100,17 +100,17 @@ DROP_TABLES = {
     "wood":    {"cobblestone": 80, "iron": 15, "gold": 4,  "diamond": 1},
     "stone":   {"cobblestone": 70, "iron": 20, "gold": 8, "diamond": 2},
     "iron":    {"cobblestone": 50, "iron": 30, "gold": 16, "diamond": 4},
-    "gold":    {"cobblestone": 40, "iron": 30, "gold": 22, "diamond": 8},
-    "diamond": {"cobblestone": 20, "iron": 35, "gold": 30, "diamond": 15},
+    "gold":    {"cobblestone": 25, "iron": 30, "gold": 30, "diamond": 15},
+    "diamond": {"cobblestone": 20, "iron": 20, "gold": 35, "diamond": 25},
 }
 
 SWORDS = {
     None:0,
     "wood":0,
-    "stone":0,
-    "iron":1,
-    "gold":2,
-    "diamond":4
+    "stone":1,
+    "iron":2,
+    "gold":3,
+    "diamond":5
     }
 TIER_ORDER = ["wood", "stone", "iron", "gold", "diamond"]
 # cumulative exp required for each level
@@ -161,13 +161,14 @@ CRAFT_RECIPES = {
     ("fishing_rod", "gold"):  (3,    0,      None,          10),
     ("fishing_rod", "diamond"):(3,   0,      None,          10),
 
+    ("sword",     "stone"):    (1,    2,      "cobblestone",3),
     ("sword",     "iron"):    (1,    2,      "iron",        3),
     ("sword",     "gold"):    (1,    2,      "gold",        3),
     ("sword",     "diamond"): (1,    2,      "diamond",     3),
 
     ("axe",     "wood"):    (4,    0,      None, 5),
     ("axe",     "stone"):   (1,    3,      "cobblestone", 10),
-    ("axe",     "iron"):    (1,    3,      "iron",        5),
+    ("axe",     "iron"):    (1,    3,      "iron",        10),
     ("axe",     "gold"):    (1,    3,      "gold",        10),
     ("axe",     "diamond"): (1,    3,      "diamond",     10),
 }
@@ -179,6 +180,6 @@ COLOR_MAP = {
     "purple": discord.Color.purple(),
     "red":    discord.Color.red(),
 }
-AXEWOOD = {None:1,"wood":2,"stone":2,"iron":3,"gold":3,"diamond":4}
+AXEWOOD = {None:1,"wood":2,"stone":3,"iron":4,"gold":5,"diamond":6}
 # Spawn channels
 SPAWN_CHANNEL_IDS = [1396534538498343002, 1396534603854123088,1396534658656763974,1396534732682035250]
