@@ -223,7 +223,7 @@ async def on_message(message):
     bucket = chat_xp_cd.get_bucket(message)
     can_gain = bucket.update_rate_limit() is None
     if can_gain:
-        await u.gain_exp(conn,bot,db_pool,bot,user_id, 1,message,)
+        await u.gain_exp(conn,bot,user_id,1,message)
         
     # 0) Try to capture any active spawn in this channel
     name = message.content.strip().lower().replace(" ", "")
