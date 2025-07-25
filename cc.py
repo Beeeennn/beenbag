@@ -1457,8 +1457,8 @@ async def c_use(ctx, bot, item_name, quantity):
     # allow "exp" shortcut for "Exp Bottle"
     if item_name in ("exp", "experience"):
         item_name = "exp bottle"
-    elif item_name in ("pack", "mob pack", "mystery mob pack"):
-        item_name = "mystery animal"
+    elif item_name in ("pack", "mob pack", "mystery animal"):
+        item_name = "mystery mob pack"
     elif item_name in ("boss ticket","ticket","mob ticket","boss mob"):
         item_name = "boss mob ticket"
     else:
@@ -1478,7 +1478,7 @@ async def c_use(ctx, bot, item_name, quantity):
             return await ctx.send(f"❌ **{item_name}** cannot be used.")
         if row["quantity"] < quantity:
             return await ctx.send(f"❌ You only have {row['quantity']} **{item_name}**.")
-        if item_name == "fish food" and row["quantity"]%100 != 0:
+        if item_name == "fish food" and quantity%100 != 0:
             return await ctx.send(f"❌ You must put an amount of fish food divisible by 100.")
         # Deduct quantity or delete
         remaining = row["quantity"] - quantity
@@ -1494,7 +1494,7 @@ async def c_use(ctx, bot, item_name, quantity):
                 WHERE player_id = $1 AND item_name = $2
             """, user_id, item_name)
     # 🎉 Effect (optional)
-    if item_name == "mystery animal":
+    if item_name == "mystery mob pack":
         got = []
         mobs = ([m for m,v in MOBS.items() if not v["hostile"]])
         rarities = [MOBS[name]["rarity"] for name in mobs]
