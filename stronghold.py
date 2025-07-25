@@ -61,42 +61,60 @@ class PathButtons(discord.ui.View):
         return interaction.user.id == self.player_id
 
     async def handle_choice(self, interaction, path_chosen):
-        if path_chosen == self.death_path:
-            self.disable_all_items()
-            await interaction.response.edit_message(
-                content=random.choice(DEATH_MESSAGES),
-                view=self
-            )
-            return await self.give_loot()
+        try:
+            if path_chosen == self.death_path:
+                self.disable_all_items()
+                await interaction.response.edit_message(
+                    content=random.choice(DEATH_MESSAGES),
+                    view=self
+                )
+                return
 
-        next_level = self.level + 1
-        current_tier = max([lvl for lvl in STRONGHOLD_LOOT.keys() if lvl <= next_level])
-        loot_table = STRONGHOLD_LOOT[current_tier]
+            # Survived — gain loot and go to next level
+            self.death_path = random.randint(1, 4)
+            next_level = self.level + 1
+            current_tier = max([lvl for lvl in STRONGHOLD_LOOT.keys() if lvl <= next_level])
+            loot_table = STRONGHOLD_LOOT[current_tier]
 
-        loot = {}
-        for item, bounds in loot_table.items():
-            loot[item] = random.randint(bounds["min"], bounds["max"])
+            loot = {}
+            for item, bounds in loot_table.items():
+                loot[item] = random.randint(bounds["min"], bounds["max"])
 
-        for item, amt in loot.items():
-            self.collected[item] = self.collected.get(item, 0) + amt
+            for item, amt in loot.items():
+                self.collected[item] = self.collected.get(item, 0) + amt
 
-        if next_level >= 25:
-            self.disable_all_items()
-            summary = "\n".join(f"{v}× {k}" for k, v in self.collected.items()) or "None"
-            await interaction.response.edit_message(
-                content=f"🎉 You've conquered all 25 levels of the stronghold!\n\n**Final Loot:**\n{summary}",
-                view=self
-            )
-            return await self.give_loot()
+            # Auto-leave if at level 25
+            if next_level >= 25:
+                self.disable_all_items()
+                summary = "\n".join(f"{v}× {k}" for k, v in self.collected.items()) or "None"
 
-        embed = discord.Embed(title=f"Stronghold - Room {next_level}", color=discord.Color.dark_green())
-        embed.add_field(name=">>>> Loot Found This Level", value="\n".join(f"{v}× {k}" for k, v in loot.items()), inline=False)
-        embed.add_field(name="📦 Total Loot", value="\n".join(f"{v}× {k}" for k, v in self.collected.items()), inline=False)
-        embed.set_footer(text="Choose a door...")
+                # 💾 Give collected items
+                async with self.db_pool.acquire() as conn:
+                    for item, amt in self.collected.items():
+                        await give_items(self.player_id, item, amt, item, True, conn)
 
-        next_view = PathButtons(next_level, self.collected, self.player_id, self.db_pool)
-        await interaction.response.edit_message(embed=embed, view=next_view)
+                await interaction.response.edit_message(
+                    content=f"🎉 You've conquered all 25 levels of the stronghold!\n\n**Final Loot:**\n{summary}",
+                    view=self
+                )
+                return
 
+            # Else, move to next level
+            embed = discord.Embed(title=f"Stronghold - Room {next_level}", color=discord.Color.dark_green())
+            embed.add_field(name="🎁 Loot Found This Level", value="\n".join(f"{v}× {k}" for k, v in loot.items()), inline=False)
+            embed.add_field(name="📦 Total Loot", value="\n".join(f"{v}× {k}" for k, v in self.collected.items()), inline=False)
+            embed.set_footer(text="Choose a door...")
+
+            next_view = PathButtons(next_level, self.collected, self.player_id, self.db_pool)
+            await interaction.response.edit_message(embed=embed, view=next_view)
+
+        except Exception as e:
+            print(f"[Stronghold Error] {e}")
+            await interaction.followup.send("❌ Something went wrong with the stronghold.", ephemeral=True)
+    def disable_all_items(self):
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
     async def give_loot(self):
         async with self.db_pool.acquire() as conn:
             for item, amount in self.collected.items():
