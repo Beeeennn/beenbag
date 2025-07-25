@@ -461,11 +461,8 @@ async def upbarn(ctx):
 
 @commands.cooldown(1, 90, commands.BucketType.user)
 @bot.command(name="fish")
-
 async def fish(ctx):
     image_bytes = await cc.make_fish(ctx, "assets/fish/")
-    
-
 @fish.error
 async def fish_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
@@ -476,6 +473,13 @@ async def fish_error(ctx, error):
         return
     # For any other errors, let them bubble up
     raise error
+
+
+@bot.command(name="aquarium", aliases=["aq"])
+async def aquarium(ctx, *, who: str = None):
+    await cc.c_generate_aquarium(ctx,who)
+
+
 
 def pixelate(img: Image.Image, size: int) -> Image.Image:
     """Downscale to (size×size) then upscale back, nearest-neighbor."""

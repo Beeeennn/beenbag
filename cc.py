@@ -6,7 +6,7 @@ import discord
 from discord.ext import commands
 import asyncpg
 from aiohttp import web
-from PIL import Image
+from PIL import Image, ImageOps
 import io
 import dateparser
 
@@ -246,7 +246,7 @@ async def c_give(ctx, who: str, mob: str):
         base   = RARITIES[rarity]["emeralds"]
         reward = base * (2 if is_golden else 1)
 
-        sucsac(ctx,ctx.author,mob_name,is_golden,f"because {member.display_name}'s barn was full")
+        sucsac(ctx,ctx.author,mob_name,is_golden,f"because {member.display_name}'s barn was full",conn)
 
     await ctx.send(
         f"⚠️ {member.display_name}`s barn is full, so you sacrificed "
@@ -1342,70 +1342,85 @@ async def make_fish(ctx,fish_path: str) -> io.BytesIO:
     buf = io.BytesIO()
     result.save(buf, format="PNG")
     buf.seek(0)
-    await ctx.send(f"🎣 You caught a **{color1} and {color2} {typef}**!", file=discord.File(buf, "fish.png"))
+    await ctx.send(f"🎣 You caught a **{color_names[0]} and {color_names[1]} {typef}**!", file=discord.File(buf, "fish.png"))
 
 
-# async def generate_aquarium(ctx, who):
-#     background_path="assets/fish/aquarium.png"
+async def c_generate_aquarium(ctx, who):
+    background_path="assets/fish/aquarium.png"
+    # Resolve who → Member (or fallback to author)
+    if who is None:
+        member = ctx.author
+    else:
+        member = await resolve_member(ctx, who)
+        if member is None:
+            return await ctx.send("Member not found.")  # or "Member not found."
 
-#     with async d.
+    # Now you’ve got a real Member with .id, .display_name, etc.
+    user_id = member.id
+    async with db_pool.acquire() as conn:
 
-#     if len(fish_specs) > 20:
-#         raise ValueError("You can only place up to 20 fish.")
 
-#     aquarium = Image.open(background_path).convert("RGBA")
-#     width, height = aquarium.size
-#     fish_size = 12
-#     edge_buffer = 6
-#     fish_buffer = 2
+        row = await conn.fetch("""
+        SELECT color1, color2, type
+        FROM aquarium                 
+        WHERE user_id = $1    
+                         """,
+                         user_id)
+    fish_specs = []
+    for r in row:
+        fish_specs += [[r["color1"],r["color2"],r["type"]]]
+    if len(fish_specs) > 20:
+        raise ValueError("You can only place up to 20 fish.")
+    aquarium = Image.open(background_path).convert("RGBA")
+    width, height = aquarium.size
+    fish_size = 12
+    edge_buffer = 6
+    fish_buffer = 2
+    placed_positions = []
 
-#     placed_positions = []
+    def is_valid_position(x, y):
+        for px, py in placed_positions:
+            if abs(x - px) < fish_size + fish_buffer and abs(y - py) < fish_size + fish_buffer:
+                return False
+        return True
+    for spec in fish_specs:
+        color1_name, color2_name, fish_type = spec
+        color1 = MINECRAFT_COLORS.get(color1_name)
+        color2 = MINECRAFT_COLORS.get(color2_name)
+        if not color1 or not color2:
+            print(f"⚠️ Invalid color name: {color1_name} or {color2_name}")
+            continue
+        base_path = f"assets/fish/{fish_type}/base.png"
+        overlay_path = f"assets/fish/{fish_type}/overlay.png"
+        if not (os.path.exists(base_path) and os.path.exists(overlay_path)):
+            print(f"⚠️ Missing image for fish type: {fish_type}")
+            continue
+        base = Image.open(base_path).convert("RGBA")
+        overlay = Image.open(overlay_path).convert("RGBA")
+        tinted_base = await tint_image(base, color1)
+        tinted_overlay = await tint_image(overlay, color2)
+        fish_image = Image.alpha_composite(tinted_base, tinted_overlay)
 
-#     def is_valid_position(x, y):
-#         for px, py in placed_positions:
-#             if abs(x - px) < fish_size + fish_buffer and abs(y - py) < fish_size + fish_buffer:
-#                 return False
-#         return True
-
-#     for spec in fish_specs:
-#         color1_name, color2_name, fish_type = spec
-#         color1 = MINECRAFT_COLORS.get(color1_name)
-#         color2 = MINECRAFT_COLORS.get(color2_name)
-#         if not color1 or not color2:
-#             print(f"⚠️ Invalid color name: {color1_name} or {color2_name}")
-#             continue
-
-#         base_path = f"assets/fish/{fish_type}/base.png"
-#         overlay_path = f"assets/fish/{fish_type}/overlay.png"
-#         if not (os.path.exists(base_path) and os.path.exists(overlay_path)):
-#             print(f"⚠️ Missing image for fish type: {fish_type}")
-#             continue
-
-#         base = Image.open(base_path).convert("RGBA")
-#         overlay = Image.open(overlay_path).convert("RGBA")
-#         tinted_base = await tint_image(base, color1)
-#         tinted_overlay = await tint_image(overlay, color2)
-#         fish_image = Image.alpha_composite(tinted_base, tinted_overlay)
-
-#         # Place it
-#         tries = 0
-#         while tries < 1000:
-#             x = random.randint(edge_buffer, width - fish_size - edge_buffer)
-#             y = random.randint(edge_buffer, height - fish_size - edge_buffer)
-#             if is_valid_position(x, y):
-#                 aquarium.alpha_composite(fish_image, (x, y))
-#                 placed_positions.append((x, y))
-#                 break
-#             tries += 1
-#         else:
-#             print(f"⚠️ Could not place fish {spec} after 1000 attempts")
-
-#     aquarium.save(output_path)
-#     print(f"Aquarium saved as {output_path}")
-
-# fish_data = [
-#     ["orange", "blue", "flopper"],
-#     ["lime", "magenta", "stripey"],
-#     ["red", "cyan", "blockfish"]    
-# ]
-# generate_aquarium(fish_data)
+        # Randomly flip 50% of fish
+        if random.choice([True, False]):
+            fish_image = ImageOps.mirror(fish_image)
+        # Place it
+        tries = 0
+        while tries < 1000:
+            x = random.randint(edge_buffer, width - fish_size - edge_buffer)
+            y = random.randint(edge_buffer, height - fish_size - edge_buffer)
+            if is_valid_position(x, y):
+                aquarium.alpha_composite(fish_image, (x, y))
+                placed_positions.append((x, y))
+                break
+            tries += 1
+        else:
+            print(f"⚠️ Could not place fish {spec} after 1000 attempts")
+    result = aquarium
+    scale = 4
+    new_size = (result.width * scale, result.height * scale)
+    result = result.resize(new_size, resample=Image.NEAREST)
+    buf = io.BytesIO()
+    result.save(buf, format="PNG")
+    buf.seek(0)
+    await ctx.send(f"{member.display_name}'s Aquarium**!", file=discord.File(buf, "aquarium.png"))
