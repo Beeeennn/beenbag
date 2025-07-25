@@ -1293,7 +1293,7 @@ async def make_fish(ctx,fish_path: str) -> io.BytesIO:
             INSERT INTO aquarium (user_id,color1,color2,type)
             VALUES ($1,$2,$3,$4)
             """,
-            user_id,color1,color2,typef
+            user_id,color_names[0],color_names[1],typef
         )
                 
         # 1) Fetch all usable rods
