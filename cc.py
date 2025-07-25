@@ -834,7 +834,7 @@ async def c_sac(ctx, mob_name: str):
                 "DELETE FROM barn WHERE user_id=$1 AND mob_name=$2",
                 user_id, key
             )
-        await sucsac(ctx,ctx.author,mob_name,is_gold)
+        await sucsac(ctx,ctx.author,mob_name,is_gold,"",conn)
 
 async def c_bestiary(ctx, who: str = None):
     """Show all mobs you’ve sacrificed, split by Golden vs. normal and by rarity."""
