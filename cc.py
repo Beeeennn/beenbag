@@ -246,18 +246,7 @@ async def c_give(ctx, who: str, mob: str):
         base   = RARITIES[rarity]["emeralds"]
         reward = base * (2 if is_golden else 1)
 
-        await conn.execute(
-            "UPDATE accountinfo SET emeralds = emeralds + $1 WHERE discord_id = $2",
-            reward, user_id
-        )
-        # record in history
-        await conn.execute(
-            """
-            INSERT INTO sacrifice_history (discord_id, mob_name, is_golden, rarity)
-            VALUES ($1, $2, $3, $4)
-            """,
-            user_id, mob_name, is_golden, rarity
-        )
+        sucsac(ctx,ctx.author,mob_name,is_golden,f"because {member.display_name}'s barn was full")
 
     await ctx.send(
         f"⚠️ {member.display_name}`s barn is full, so you sacrificed "
