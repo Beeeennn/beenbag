@@ -68,7 +68,7 @@ class PathButtons(discord.ui.View):
     async def handle_choice(self, interaction, path_chosen):
         try:
             if path_chosen == self.death_path:
-                if self.used_totem or self.player_totems > 1:
+                if self.used_totem or self.player_totems < 1:
                     self.disable_all_items()
                     await interaction.response.edit_message(
                         content=random.choice(DEATH_MESSAGES),
