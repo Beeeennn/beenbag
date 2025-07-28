@@ -283,8 +283,7 @@ async def c_craft(ctx, args):
     tool = tool_raw.replace(" ", "_").lower()
 
     # If it’s the fishing rod, force tier to “wood”
-    if tool in ("fishing_rod", "fishingrod", "fishing"):
-        tier = "wood"
+    if tool in ("fishing_rod", "fishingrod", "fishing","rod"):
         tool = "fishing_rod"
 
     if tool == "totem":
