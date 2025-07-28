@@ -835,7 +835,7 @@ async def c_sac(ctx, mob_name: str):
     user_id = ctx.author.id
     key = mob_name.title()
     # Check for special @beennn sacrifice case
-    if mob_name.lower() in ("@Beeeenjaminnn", "<@674671907626287151>"):  # replace with their real user ID
+    if mob_name.lower() in ("@beeeenjaminnn", "<@674671907626287151>", "been","beenn"):  # replace with their real user ID
         async with db_pool.acquire() as conn:
             diamond_count = await get_items(conn, user_id, "diamond")
             if diamond_count == 0:
