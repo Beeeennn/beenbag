@@ -76,7 +76,8 @@ class PathButtons(discord.ui.View):
                     )
                     return
                 else:
-                    await take_items(self.player_id, "totem", 1, conn)
+                    async with self.db_pool.acquire() as conn:
+                        await take_items(self.player_id, "totem", 1, conn)
                     await interaction.response.edit_message(
                         content="Your totem saved you from death, be careful",
                         view=self
