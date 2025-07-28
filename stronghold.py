@@ -57,6 +57,7 @@ class PathButtons(discord.ui.View):
         self.db_pool = db_pool
         self.death_path = random.randint(1, 4)
         self.used_totem = False
+        self.player_totems = 0
     async def async_init(self):
         async with self.db_pool.acquire() as conn:
             self.player_totems = await get_items(conn, self.player_id, "totem")
