@@ -292,7 +292,7 @@ async def c_craft(ctx, args):
         async with db_pool.acquire() as conn:
             await ensure_player(conn,ctx.author.id)
             # Fetch their resources
-            ore_have = await get_items(conn, user_id, "diamonds")
+            ore_have = await get_items(conn, user_id, "diamond")
             if ore_have < cost:
                 return await ctx.send(f"❌ You need {cost} diamonds to craft that.")
             await give_items(user_id,"totem", 1, "items", False, conn)
