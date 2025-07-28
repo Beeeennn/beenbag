@@ -257,6 +257,38 @@ async def c_give(ctx, who: str, mob: str):
         f"⚠️ {member.display_name}`s barn is full, so you sacrificed "
         f"{'✨ ' if is_golden else ''}**{mob_name}** for 💠 **{reward}** emeralds!"
     )
+async def c_recipe(ctx, args):
+    user_id = ctx.author.id
+    if not args:
+        return await ctx.send("❌ Usage: `!recipe <tool> [tier]`")
+
+    # Build tool name from all but last arg; tier is last arg if 2+ args
+    if len(args) == 1:
+        tool_raw = args[0]
+        tier = None
+    else:
+        tool_raw = "_".join(args[:-1])
+        tier = args[-1].lower()
+
+    tool = tool_raw.replace(" ", "_").lower()
+
+    # If it’s the fishing rod, force tier to “wood”
+    if tool in ("fishing_rod", "fishingrod", "fishing","rod"):
+        tool = "fishing_rod"
+
+    if tier is None:
+        return await ctx.send("❌ You must specify a tier for that tool.")
+
+    key = (tool, tier)
+    if key not in CRAFT_RECIPES:
+        return await ctx.send("❌ Invalid recipe. Try `!recipe pickaxe iron` or `!recipe totem`.")
+
+    wood_cost, ore_cost, ore_col, uses = CRAFT_RECIPES[key]
+    need = [f"**{wood_cost} wood**"]
+    if ore_col:
+        need.append(f"**{ore_cost} {ore_col}**")
+    return await ctx.send(f"You need { ' and '.join(need) } to craft a {tool}.")
+    
 
 async def c_craft(ctx, args):
     """

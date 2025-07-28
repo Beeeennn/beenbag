@@ -395,6 +395,14 @@ async def craft_error(ctx, error):
         return await ctx.send("❌ Usage: `!craft <tool> [tier]`")
     raise error
 
+@bot.command(name="recipe")
+async def recipe(ctx, *args):
+    await cc.c_craft(ctx, args)
+@craft.error
+async def craft_error(ctx, error):
+    if isinstance(error, commands.MissingRequiredArgument):
+        return await ctx.send("❌ Usage: `!recipe <tool> [tier]`")
+    raise error
 
 @bot.command(name="shop")
 async def shop(ctx):
