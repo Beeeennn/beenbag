@@ -156,10 +156,10 @@ CRAFT_RECIPES = {
     ("hoe",       "diamond"): (1,    2,      "diamond",     10),
 
     ("fishing_rod", "wood"):  (3,    0,      None,          10),
-    ("fishing_rod", "stone"): (3,    0,      None,          10),
-    ("fishing_rod", "iron"):  (3,    0,      None,          10),
-    ("fishing_rod", "gold"):  (3,    0,      None,          10),
-    ("fishing_rod", "diamond"):(3,   0,      None,          10),
+    ("fishing_rod", "stone"): (3,    2,      "cobblestone",          10),
+    ("fishing_rod", "iron"):  (3,    2,      "iron",          10),
+    ("fishing_rod", "gold"):  (3,    2,      "gold",          10),
+    ("fishing_rod", "diamond"):(3,   2,      "diamond",          10),
 
     ("sword",     "stone"):    (1,    2,      "cobblestone",3),
     ("sword",     "iron"):    (1,    2,      "iron",        3),
@@ -211,4 +211,4 @@ MINECRAFT_COLORS = {
     "red":       (255, 0, 0)
 }
 FISHTYPES = ["flopper","stripey","glitter","blockfish","betty","clayfish","kob","sunstreak","snooper","dasher","brinely","spotty"]
-
+FISHINGCHANCE={None:1,"wood":60,"stone":50,"iron":30,"gold":20,"diamond":10}

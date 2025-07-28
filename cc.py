@@ -1322,8 +1322,7 @@ async def tint_image(image: Image.Image, tint: tuple[int, int, int]) -> Image.Im
     return result
 
 async def make_fish(ctx,fish_path: str):
-    if random.choice([True,False]):
-        return await ctx.send("You caught a sea pickle, yuck!!! you throw it back in the ocean")
+
     user_id = ctx.author.id
     # Pick 2 distinct colors
     color_names = random.sample(list(MINECRAFT_COLORS.keys()), 2)
@@ -1332,14 +1331,6 @@ async def make_fish(ctx,fish_path: str):
     typef = random.choice(FISHTYPES)
     async with db_pool.acquire() as conn:
         await ensure_player(conn,ctx.author.id)
-        await conn.execute(
-            """
-            INSERT INTO aquarium (user_id,color1,color2,type)
-            VALUES ($1,$2,$3,$4)
-            """,
-            user_id,color_names[0],color_names[1],typef
-        )
-                
         # 1) Fetch all usable rods
         rods = await conn.fetch(
             """
@@ -1351,13 +1342,19 @@ async def make_fish(ctx,fish_path: str):
             """,
             user_id
         )
-        
+
         if not rods:
             ctx.command.reset_cooldown(ctx)
             return await ctx.send(
                 "❌ You need a fishing rod with at least 1 use to mine! Craft one with `!craft fishing rod`."
             )
-        
+        # 2) Determine your highest tier pickaxe
+        owned_tiers = {r["tier"] for r in rods}
+        best_tier = None
+        for tier in reversed(TIER_ORDER):
+            if tier in owned_tiers:
+                best_tier = tier
+                break        
         # 3) Consume 1 use on that rod
         await conn.execute(
             """
@@ -1365,11 +1362,24 @@ async def make_fish(ctx,fish_path: str):
                SET uses_left = uses_left - 1
              WHERE user_id = $1
                AND tool_name = 'fishing_rod'
+               AND tier = $2
                AND uses_left > 0
             """,
-            user_id
+            user_id,best_tier
         )
-
+        chance = random.randint(0,100)
+        if chance>FISHINGCHANCE[best_tier]:
+            
+            await conn.execute(
+                """
+                INSERT INTO aquarium (user_id,color1,color2,type)
+                VALUES ($1,$2,$3,$4)
+                """,
+                user_id,color_names[0],color_names[1],typef
+            )
+        else:
+            return await ctx.send("You caught a sea pickle, yuck!!! you throw it back in the ocean")
+            
     base_path = f"{fish_path}{typef}/base.png"
     overlay_path = f"{fish_path}{typef}/overlay.png"
     base = Image.open(base_path).convert("RGBA")
@@ -1386,7 +1396,7 @@ async def make_fish(ctx,fish_path: str):
     buf = io.BytesIO()
     result.save(buf, format="PNG")
     buf.seek(0)
-    await ctx.send(f"🎣 You caught a **{color_names[0]} and {color_names[1]} {typef}**!", file=discord.File(buf, "fish.png"))
+    await ctx.send(f"🎣 You used your **{tier} fishing rod** to chatch a **{color_names[0]} and {color_names[1]} {typef}**!", file=discord.File(buf, "fish.png"))
 
 
 async def c_generate_aquarium(ctx, who):
