@@ -1647,11 +1647,11 @@ async def c_use(ctx, bot, item_name, quantity):
 async def c_stronghold(ctx):
     async with db_pool.acquire() as conn:
         cobble = await get_items(conn, ctx.author.id, "cobblestone")
+        totems = await get_items(conn, ctx.author.id, "totem")
         if cobble < 6:
             return await ctx.send(f"❌ You need 6 cobblestone to enter")
         await take_items(ctx.author.id, "cobblestone", 6, conn)
-    view = PathButtons(level=0, collected={}, player_id=ctx.author.id, db_pool=db_pool)
-    await view.async_init()
+    view = PathButtons(level=0, collected={}, player_id=ctx.author.id, db_pool=db_pool, totems=totems)
     embed = discord.Embed(
         title="Stronghold - Room 0",
         description="Choose a door to begin your descent...",
