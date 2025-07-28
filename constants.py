@@ -97,11 +97,11 @@ WHEAT_DROP ={None: 2,
 ANNOUNCE_CHANNEL_ID = 1396194783713824800
 # Define weighted drop tables per pickaxe tier
 DROP_TABLES = {
-    "wood":    {"cobblestone": 80, "iron": 15, "gold": 4,  "diamond": 1},
-    "stone":   {"cobblestone": 70, "iron": 20, "gold": 8, "diamond": 2},
-    "iron":    {"cobblestone": 50, "iron": 30, "gold": 16, "diamond": 4},
-    "gold":    {"cobblestone": 25, "iron": 25, "gold": 25, "diamond": 25},
-    "diamond": {"cobblestone": 10, "iron": 10, "gold": 35, "diamond": 45},
+    "wood":    {"cobblestone":{"chance" :80, "min":1, "max":1}, "iron":{"chance" :15, "min":1, "max":1}, "gold": {"chance" :4, "min":1, "max":1},  "diamond": {"chance" :1, "min":1, "max":1}},
+    "stone":   {"cobblestone": {"chance" :70, "min":1, "max":3}, "iron": {"chance" :20, "min":1, "max":2}, "gold": {"chance" :8, "min":1, "max":1}, "diamond": {"chance" :2, "min":1, "max":1}},
+    "iron":    {"cobblestone": {"chance" :50, "min":2, "max":4}, "iron": {"chance" :30, "min":1, "max":3}, "gold": {"chance" :16, "min":1, "max":2}, "diamond": {"chance" :4, "min":1, "max":1}},
+    "gold":    {"cobblestone": {"chance" :25, "min":3, "max":6}, "iron": {"chance" :25, "min":2, "max":4}, "gold": {"chance" :80, "min":1, "max":3}, "diamond": {"chance" :25, "min":1, "max":2}},
+    "diamond": {"cobblestone": {"chance" :10, "min":6, "max":10}, "iron": {"chance" :10, "min":3, "max":6}, "gold": {"chance" :35, "min":1, "max":3}, "diamond": {"chance" :45, "min":1, "max":2}},
 }
 
 SWORDS = {
@@ -171,6 +171,8 @@ CRAFT_RECIPES = {
     ("axe",     "iron"):    (1,    3,      "iron",        10),
     ("axe",     "gold"):    (1,    3,      "gold",        10),
     ("axe",     "diamond"): (1,    3,      "diamond",     10),
+
+    ("totem", "diamond"):    (0,   2,      "diamond",      1)
 }
 ITEMS = {"wood":{"useable":False,"category":"resource"},
         "gold":{"useable":False,"category":"resource"},

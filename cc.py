@@ -268,6 +268,7 @@ async def c_craft(ctx, args):
       !craft fishing rod
       !craft pickaxe iron
     """
+    user_id = ctx.author.id
     if not args:
         return await ctx.send("❌ Usage: `!craft <tool> [tier]`")
 
@@ -286,6 +287,19 @@ async def c_craft(ctx, args):
         tier = "wood"
         tool = "fishing_rod"
 
+    if tool == "totem":
+        cost = 2
+        tier = "diamond"
+        async with db_pool.acquire() as conn:
+            await ensure_player(conn,ctx.author.id)
+            # Fetch their resources
+            ore_have = await get_items(conn, user_id, "diamonds")
+            if ore_have < cost:
+                return await ctx.send(f"❌ You need {cost} diamonds to craft that.")
+            await give_items(user_id,"totem", 1, "items", False, conn)
+            await take_items(user_id, "diamond", cost, conn)
+        await ctx.send(f"🔨 You crafted a **totem**, you will now be get an extra life in a stronghold. You can only use one per run.")
+
     if tier is None:
         return await ctx.send("❌ You must specify a tier for that tool.")
 
@@ -294,8 +308,6 @@ async def c_craft(ctx, args):
         return await ctx.send("❌ Invalid recipe. Try `!craft pickaxe iron` or `!craft fishing rod`.")
 
     wood_cost, ore_cost, ore_col, uses = CRAFT_RECIPES[key]
-
-    user_id = ctx.author.id
 
     async with db_pool.acquire() as conn:
         await ensure_player(conn,ctx.author.id)
@@ -1009,21 +1021,29 @@ async def c_mine(ctx):
 
         # 4) Pick a drop according to your tier’s table
         table = DROP_TABLES[best_tier]
-        ores, weights = zip(*table.items())
-        drop = random.choices(ores, weights=weights, k=1)[0]
+
+        ores = list(table.keys())
+        weights = [table[ore]["chance"] for ore in ores]
+
+        # Choose one ore based on weights
+        chosen_ore = random.choices(ores, weights=weights, k=1)[0]
+
+        # Get a random amount between min and max for that ore
+        drop_info = table[chosen_ore]
+        amount = random.randint(drop_info["min"], drop_info["max"])
 
         # 5) Grant the drop
-        await give_items(user_id,drop,1,"resource",False,conn)
+        await give_items(user_id,chosen_ore,amount,"resource",False,conn)
         # fetch new total
         
-        total = await get_items(conn, user_id, drop)
+        total = await get_items(conn, user_id, chosen_ore)
 
     # Prepare the final result text
     emojis = {"cobblestone":"🪨","iron":"🔩","gold":"🪙","diamond":"💎"}
-    emoji = emojis.get(drop, "⛏️")
+    emoji = emojis.get(chosen_ore, "⛏️")
     result = (
         f"{ctx.author.mention} mined with a **{best_tier.title()} Pickaxe** and found "
-        f"{emoji} **1 {drop}**! You now have **{total} {drop}**."
+        f"{emoji} **{amount} {chosen_ore}**! You now have **{total} {chosen_ore}**."
     )
 
     # --- 2) Play the animation ---
@@ -1576,10 +1596,11 @@ async def c_use(ctx, bot, item_name, quantity):
 async def c_stronghold(ctx):
     async with db_pool.acquire() as conn:
         cobble = await get_items(conn, ctx.author.id, "cobblestone")
-        if cobble < 0:
-            return await ctx.send(f"❌ You need 8 cobblestone or a dungeon key to enter")
-        await take_items(ctx.author.id, "cobblestone", 8, conn)
+        if cobble < 6:
+            return await ctx.send(f"❌ You need 6 cobblestone to enter")
+        await take_items(ctx.author.id, "cobblestone", 6, conn)
     view = PathButtons(level=0, collected={}, player_id=ctx.author.id, db_pool=db_pool)
+    await view.async_init()
     embed = discord.Embed(
         title="Stronghold - Room 0",
         description="Choose a door to begin your descent...",

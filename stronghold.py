@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 import random, asyncio
 from constants import *
-
+from utils import *
 DEATH_MESSAGES = [
     "💀 You ran into lava. You lost all your loot!",
     "☠️ You fell down a hole. You lost all your loot!",
@@ -56,6 +56,10 @@ class PathButtons(discord.ui.View):
         self.player_id = player_id
         self.db_pool = db_pool
         self.death_path = random.randint(1, 4)
+        self.used_totem = False
+    async def async_init(self):
+        async with self.db_pool.acquire() as conn:
+            self.player_totems = await get_items(conn, self.player_id, "totem")
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return interaction.user.id == self.player_id
@@ -63,13 +67,19 @@ class PathButtons(discord.ui.View):
     async def handle_choice(self, interaction, path_chosen):
         try:
             if path_chosen == self.death_path:
-                self.disable_all_items()
-                await interaction.response.edit_message(
-                    content=random.choice(DEATH_MESSAGES),
-                    view=self
-                )
-                return
-
+                if self.used_totem or self.player_totems > 1:
+                    self.disable_all_items()
+                    await interaction.response.edit_message(
+                        content=random.choice(DEATH_MESSAGES),
+                        view=self
+                    )
+                    return
+                else:
+                    await take_items(self.player_id, "totem", 1, conn)
+                    await interaction.response.edit_message(
+                        content="Your totem saved you from death, be careful",
+                        view=self
+                    )
             # Survived — gain loot and go to next level
             self.death_path = random.randint(1, 4)
             next_level = self.level + 1
