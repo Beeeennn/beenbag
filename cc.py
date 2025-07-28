@@ -329,7 +329,7 @@ async def c_craft(ctx, args):
                 return await ctx.send(f"❌ You need {cost} diamonds to craft that.")
             await give_items(user_id,"totem", 1, "items", False, conn)
             await take_items(user_id, "diamond", cost, conn)
-        await ctx.send(f"🔨 You crafted a **totem**, you will now be get an extra life in a stronghold. You can only use one per run.")
+        return await ctx.send(f"🔨 You crafted a **totem**, you will now be get an extra life in a stronghold. You can only use one per run.")
 
     if tier is None:
         return await ctx.send("❌ You must specify a tier for that tool.")
