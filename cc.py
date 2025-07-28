@@ -834,7 +834,17 @@ async def c_sac(ctx, mob_name: str):
     """
     user_id = ctx.author.id
     key = mob_name.title()
-
+    # Check for special @beennn sacrifice case
+    if mob_name.lower() in ("@Beeeenjaminnn", "<@674671907626287151>"):  # replace with their real user ID
+        async with db_pool.acquire() as conn:
+            diamond_count = await get_items(conn, user_id, "diamond")
+            if diamond_count == 0:
+                return await ctx.send("💎 You don’t even have a diamond to take **L**.")
+            
+            # Remove one diamond
+            await take_items(user_id, "diamond", 1, conn)
+            await ctx.send(f"💀 You were a fool to think you could sacrifice Beenn, he beat you in combat and took a diamond.")
+            return
     # validate mob
     if key not in MOBS:
         return await ctx.send(f"❌ I don’t recognize **{mob_name}**.")
