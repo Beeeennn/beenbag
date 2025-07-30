@@ -17,7 +17,20 @@ import secrets
 from stronghold import PathButtons
 from constants import *
 from utils import *
+import aiohttp
 
+async def upload_to_catbox(image_bytes: bytes, filename: str = "image.png") -> str:
+    """Upload image bytes to catbox.moe and return the URL."""
+    url = "https://catbox.moe/user/api.php"
+    data = aiohttp.FormData()
+    data.add_field("reqtype", "fileupload")
+    data.add_field("fileToUpload", image_bytes, filename=filename, content_type="image/png")
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, data=data) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"Failed to upload to Catbox: {resp.status}")
+            return await resp.text()
 async def init_cc(dab_pool):
     global db_pool
     db_pool = dab_pool
@@ -1437,7 +1450,12 @@ async def make_fish(ctx,fish_path: str):
     buf = io.BytesIO()
     result.save(buf, format="PNG")
     buf.seek(0)
-    await ctx.send(f"🎣 You used your **{tier} fishing rod** to chatch a **{color_names[0]} and {color_names[1]} {typef}**!", file=discord.File(buf, "fish.png"))
+    catbox_url = await upload_to_catbox(buf.getvalue(), "fish.png")
+    embed = discord.Embed(
+        description=f"🎣 You used your **{best_tier} fishing rod** to catch a **{color_names[0]} and {color_names[1]} {typef}**!"
+    )
+    embed.set_image(url=catbox_url)
+    await ctx.send(embed=embed)
 
 
 async def c_generate_aquarium(ctx, who):
@@ -1533,8 +1551,13 @@ async def c_generate_aquarium(ctx, who):
     buf = io.BytesIO()
     result.save(buf, format="PNG")
     buf.seek(0)
-    await ctx.send(f"**{member.display_name}'s Aquarium**! (generates **{food}** fish food every 30 minutes with **{len(fish_specs)}** fish)", file=discord.File(buf, "aquarium.png"))
-
+    catbox_url = await upload_to_catbox(buf.getvalue(), "aquarium.png")
+    embed = discord.Embed(
+        title=f"{member.display_name}'s Aquarium",
+        description=f"Generates **{food}** fish food every 30 minutes with **{len(fish_specs)}** fish"
+    )
+    embed.set_image(url=catbox_url)
+    await ctx.send(embed=embed)
 async def c_use(ctx, bot, item_name, quantity):
     user_id = ctx.author.id
     item_name = item_name.lower()
