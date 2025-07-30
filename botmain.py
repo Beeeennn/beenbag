@@ -65,7 +65,7 @@ async def hourly_channel_exp_flush():
                                         """,record["channel_id"])
                 xp  = record["exp"]
                 name = uid["name"]
-                ch.send(f"Giving **{xp}** exp to **{name}** for watching my stream")
+                #ch.send(f"Giving **{xp}** exp to **{name}** for watching my stream")
                 await asyncio.sleep(1)
                 # pass None for ctx so gain_exp just does DB+roles without messaging
                 await u.gain_exp(conn,bot,uid["discord_id"], xp, None)
