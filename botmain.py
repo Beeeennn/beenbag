@@ -722,19 +722,28 @@ async def start_http_server():
     await site.start()
     logging.info(f"HTTP server running on port {PORT}")
 
+    return runner  # <-- return runner so you can later call runner.cleanup()
+
+
 async def main():
     # 1) Init Postgres
     await init_db()
-    # 2) Start HTTP server
-    await start_http_server()
+
+    # 2) Start HTTP server and keep a reference to the runner for cleanup
+    runner = await start_http_server()
+
     # 3) Run the bot, reconnecting on errors
     retry_delay = 5
-    while True:
-        try:
-            await bot.start(TOKEN)
-        except Exception:
-            logging.exception(f"Bot disconnected; reconnecting in {retry_delay}s")
-            await asyncio.sleep(retry_delay)
+    try:
+        while True:
+            try:
+                await bot.start(TOKEN)
+            except Exception:
+                logging.exception(f"Bot disconnected; reconnecting in {retry_delay}s")
+                await asyncio.sleep(retry_delay)
+    finally:
+        # Ensure the aiohttp app is cleaned up properly
+        await runner.cleanup()
 
 
 if __name__ == "__main__":
