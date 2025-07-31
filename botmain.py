@@ -484,7 +484,7 @@ async def chop_error(ctx, error):
 
 @bot.command(name="stronghold")
 async def stronghold(ctx):
-    await ctx.send(f"This feature is currently under development, please try again later (after 12th Aug).")
+    await ctx.send(f"This feature is currently under development, please try again later (after 12th Aug).:fosh:")
     #await cc.c_stronghold(ctx)
 
 @bot.command(name="mine")
