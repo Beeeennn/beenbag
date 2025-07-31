@@ -207,6 +207,7 @@ async def on_ready():
     if not hasattr(bot, "_fishfood_task"):
         bot._fishfood_task = bot.loop.create_task(give_fish_food_task())
 
+#    <beenncode>
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -215,7 +216,10 @@ async def on_command_error(ctx, error):
         return
 
     # notify and log the real exception
-    await ctx.send(":explosion: (something isn't right here)")
+    try:
+        await ctx.send(":explosion: (something isn't right here)")
+    except discord.HTTPException:
+        logging.warning("Suppressed send failure due to rate limit.")
     logging.error(f"Unhandled exception in {ctx.command}: {error}", exc_info=error)
 
 @bot.event
@@ -480,7 +484,8 @@ async def chop_error(ctx, error):
 
 @bot.command(name="stronghold")
 async def stronghold(ctx):
-    await cc.c_stronghold(ctx)
+    await ctx.send(f"This feature is currently under development, please try again later (after 12th Aug).")
+    #await cc.c_stronghold(ctx)
 
 @bot.command(name="mine")
 @commands.cooldown(1, 120, commands.BucketType.user)
