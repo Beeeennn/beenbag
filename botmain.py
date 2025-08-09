@@ -313,12 +313,12 @@ async def on_message(message):
                 # insert into barn with the golden flag
                 await conn.execute(
                     """
-                    INSERT INTO barn (user_id, mob_name, is_golden, count)
-                    VALUES ($1, $2, $3, 1)
+                    INSERT INTO barn (user_id, guild_id, mob_name, is_golden, count)
+                    VALUES ($1, $4, $2, $3, 1)
                     ON CONFLICT (user_id, mob_name, is_golden)
                     DO UPDATE SET count = barn.count + 1
                     """,
-                    message.author.id, mob_name, is_golden
+                    message.author.id, mob_name, is_golden, guild_id
                 )
 
                 note = f"placed in your barn ({occ+1}/{size})."
