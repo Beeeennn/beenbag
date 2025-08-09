@@ -19,6 +19,23 @@ from constants import *
 
 async def init_util(dab_pool):
     pass
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL")  # required
+if not PUBLIC_BASE_URL:
+    raise RuntimeError("PUBLIC_BASE_URL environment variable not set")
+
+
+def media_url(media_id: str) -> str:
+    # nice .png suffix for Discord preview; path still resolves by id only
+    return f"{PUBLIC_BASE_URL}/i/{media_id}.png"
+
+async def save_image_bytes(conn: asyncpg.Connection, data: bytes, mime: str = "image/png") -> str:
+    rec = await conn.fetchrow(
+        "INSERT INTO media (mime, bytes) VALUES ($1, $2) RETURNING id",
+        mime, data
+    )
+    return str(rec["id"])
+
+
 async def giverole(ctx, id, user):
     role = ctx.guild.get_role(id)
     if not role:

@@ -8,6 +8,7 @@ import asyncpg
 from aiohttp import web
 from PIL import Image
 import io
+import uuid
 
 from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
@@ -363,6 +364,31 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
+async def handle_get_image(request):
+    # URL style: /i/<uuid> or /i/<uuid>.png
+    raw = request.match_info.get("id", "")
+    media_id = raw.split(".", 1)[0]  # strip optional .png
+
+    try:
+        uuid_obj = uuid.UUID(media_id)
+    except Exception:
+        return web.Response(status=404, text="not found")
+
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT mime, bytes FROM media WHERE id = $1", uuid_obj)
+    if not row:
+        return web.Response(status=404, text="not found")
+
+    headers = {
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "ETag": media_id,
+        "Content-Disposition": 'inline; filename="image.png"',
+    }
+    return web.Response(
+        body=bytes(row["bytes"]),
+        content_type=row["mime"],
+        headers=headers
+    )
 
 
 
@@ -720,6 +746,7 @@ async def spawn_mob_loop():
             await asyncio.sleep(60)
 async def start_http_server():
     app = web.Application()
+    app.router.add_get("/i/{id}", handle_get_image)
     app.router.add_get("/", handle_ping)
     runner = web.AppRunner(app)
     await runner.setup()

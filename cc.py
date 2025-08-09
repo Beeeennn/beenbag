@@ -1450,11 +1450,15 @@ async def make_fish(ctx,fish_path: str):
     buf = io.BytesIO()
     result.save(buf, format="PNG")
     buf.seek(0)
-    catbox_url = await upload_to_catbox(buf.getvalue(), "fish.png")
+    image_bytes = buf.getvalue()
+    async with db_pool.acquire() as conn:
+        media_id = await save_image_bytes(conn, image_bytes, "image/png")
+    image_url = media_url(media_id)
+
     embed = discord.Embed(
         description=f"🎣 You used your **{best_tier} fishing rod** to catch a **{color_names[0]} and {color_names[1]} {typef}**!"
     )
-    embed.set_image(url=catbox_url)
+    embed.set_image(url=image_url)
     await ctx.send(embed=embed)
 
 
@@ -1551,13 +1555,19 @@ async def c_generate_aquarium(ctx, who):
     buf = io.BytesIO()
     result.save(buf, format="PNG")
     buf.seek(0)
-    catbox_url = await upload_to_catbox(buf.getvalue(), "aquarium.png")
+    image_bytes = buf.getvalue()
+    async with db_pool.acquire() as conn:
+        media_id = await save_image_bytes(conn, image_bytes, "image/png")
+    image_url = media_url(media_id)
+
     embed = discord.Embed(
         title=f"{member.display_name}'s Aquarium",
         description=f"Generates **{food}** fish food every 30 minutes with **{len(fish_specs)}** fish"
     )
-    embed.set_image(url=catbox_url)
+    embed.set_image(url=image_url)
     await ctx.send(embed=embed)
+
+
 async def c_use(ctx, bot, item_name, quantity):
     user_id = ctx.author.id
     item_name = item_name.lower()
