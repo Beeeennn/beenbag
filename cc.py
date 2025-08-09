@@ -1681,3 +1681,4 @@ async def c_stronghold(ctx):
         color=discord.Color.gold()
     )
     await ctx.send(embed=embed, view=view)
+    

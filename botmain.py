@@ -49,7 +49,7 @@ def flexible_prefix(bot, message):
     return commands.when_mentioned(bot, message)  # still allow @BotName commands
 
 bot = commands.Bot(
-    command_prefix="!",
+    command_prefix="bc!",
     case_insensitive=True,
     intents=intents
 )
@@ -301,7 +301,7 @@ async def on_message(message):
                 
             if MOBS[mob_name]["hostile"]:
                 sac = True
-                reward = await u.sucsac(message.channel,message.author,mob_name,is_golden,"because the mob is hostile",conn)
+                reward = await u.sucsac(message.channel,message.author,mob_name,is_golden,"because it can't be captured",conn)
                 note = f"this mob is not catchable so it was sacrificed for {reward} emeralds"
             elif occ >= size:
                 sac = True
@@ -380,7 +380,59 @@ async def handle_get_image(request):
     )
 
 
+########################################### ADMIN #########################################################################
+@bot.command(name="setup")
+@commands.has_permissions(administrator=True)
+async def setup(ctx):
+    guild_id = ctx.guild.id
 
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    async with db_pool.acquire() as conn:
+        # Announce channel
+        await ctx.send("Mention the channel for announcements such as welcomes and level up messages (e.g., `#announcements`):")
+        msg = await bot.wait_for("message", check=check)
+        announce_channel = msg.channel_mentions[0] if msg.channel_mentions else None
+        if not announce_channel:
+            return await ctx.send("❌ No channel mentioned. Setup aborted.")
+        
+        # Step 2: Spawn channel
+        await ctx.send("Mention the channels for mob spawns, seperated by commas:")
+        msg = await bot.wait_for("message", check=check)
+        spawn_channel = msg.channel_mentions[0] if msg.channel_mentions else None
+        if not spawn_channel:
+            return await ctx.send("❌ No channel mentioned. Setup aborted.")
+        
+        # React channels
+        await ctx.send("Mention any channels where reactions should be added (comma-separated), or type `none`:")
+        msg = await bot.wait_for("message", check=check)
+        if msg.content.lower() != "none":
+            react_channels = [c.id for c in msg.channel_mentions]
+        else:
+            react_channels = []
+
+        # Log channel
+        await ctx.send("Mention the channel for logs:")
+        msg = await bot.wait_for("message", check=check)
+        log_channel = msg.channel_mentions[0] if msg.channel_mentions else None
+        if not log_channel:
+            await ctx.send("❌ No log channel mentioned. Use `setlogs #logchanel` to set it in the future.")
+
+        # Save to DB
+        await conn.execute("""
+            INSERT INTO guild_settings (guild_id, announce_channel_id, react_channel_ids, log_channel_id)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET announce_channel_id = EXCLUDED.announce_channel_id,
+                          react_channel_ids = EXCLUDED.react_channel_ids,
+                          log_channel_id = EXCLUDED.log_channel_id
+        """, guild_id, announce_channel.id, react_channels, log_channel.id)
+
+    await ctx.send("✅ Setup complete for this server!")
+
+@bot.command(name="setup")
+@commands.has_permissions(administrator=True)
 #############################################################################################################################################################################
 
 
