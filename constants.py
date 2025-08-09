@@ -181,7 +181,7 @@ ITEMS = {"wood":{"useable":False,"category":"resource"},
         "iron":{"useable":False,"category":"resource"},
         "gold":{"useable":False,"category":"resource"},
         "diamond":{"useable":False,"category":"resource"},
-        "emerald":{"useable":False,"category":"emeralds"},
+        "emeralds":{"useable":False,"category":"emeralds"},
         "boss mob ticket":{"useable":True,"category":"items"}
         }
 COLOR_MAP = {

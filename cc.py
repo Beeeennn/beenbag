@@ -69,6 +69,7 @@ async def c_linkyt(ctx, channel_name: str):
     Usage: !linkyt <your YouTube channel name>
     """
     user_id = ctx.author.id
+    gid = gid_from_ctx(ctx)
     code = await make_link_code(8)
     expires = datetime.utcnow() + timedelta(hours=3)
     channel_name = channel_name.removeprefix("@")
@@ -77,14 +78,14 @@ async def c_linkyt(ctx, channel_name: str):
         await conn.execute(
             """
             INSERT INTO pending_links
-                (discord_id, yt_channel_id, code, expires_at)
-            VALUES ($1,$2,$3,$4)
+                (discord_id, guild_id, yt_channel_id, code, expires_at)
+            VALUES ($1,$2,$3,$4,$5)
             ON CONFLICT (discord_id) DO UPDATE
               SET yt_channel_id = EXCLUDED.yt_channel_id,
                   code            = EXCLUDED.code,
                   expires_at      = EXCLUDED.expires_at;
             """,
-            user_id, channel_name.lower(), code, expires
+            user_id, gid, channel_name.lower(), code, expires
         )
 
     # DM them the code
@@ -94,27 +95,15 @@ async def c_linkyt(ctx, channel_name: str):
     f"🔗 **YouTube Link Code** 🔗\n"
     f"Channel: **{channel_name}**\n"
     f"Your code is: `{code}`\n\n"
-    "Please type `!link <code>` in one of my **livestreams** within 3 hours to complete linking."
+    f"Please type `!link {code}` in one of my **livestreams** within 3 hours to complete linking."
         
     )
     if sent:
         await ctx.send(f"{ctx.author.mention}, check your DMs for the code!")
     else:
         await ctx.send(
-            f"{ctx.author.mention}, I couldn’t DM you right now—please try again later."
+            f"{ctx.author.mention}, I couldn’t DM you right now—please try again later. Make sure to enable DMs from server members and try again (Content and social -> Social Permissions -> Direct Messages) You can turn it back off after."
         )
-
-    try:
-        await ctx.author.send(
-            f"🔗 **YouTube Link Code** 🔗\n"
-            f"Channel: **{channel_name}**\n"
-            f"Your code is: `{code}`\n\n"
-            "Please type `!link <code>` in one of my livestreams within 3 hours to complete linking."
-        )
-        await ctx.send(f"{ctx.author.mention}, I’ve DMed you your linking code!")
-    except discord.Forbidden:
-        await ctx.send(
-            f"{ctx.author.mention} I couldn’t DM you—please enable DMs from server members and try again (Content and social -> Social Permissions -> Direct Messages) You can turn it back off after.")
 
 async def c_yt(ctx, who = None):
     """
@@ -125,6 +114,7 @@ async def c_yt(ctx, who = None):
     """
     """Show your current level and progress toward the next level."""
     # Resolve who → Member (or fallback to author)
+    gid = gid_from_ctx(ctx)
     if who is None:
         member = ctx.author
     else:
@@ -143,8 +133,9 @@ async def c_yt(ctx, who = None):
             SELECT yt_channel_name, yt_channel_id
               FROM accountinfo
              WHERE discord_id = $1
+             AND guild_id = $2
             """,
-            user_id
+            user_id,gid
         )
 
     # 3) No link yet?
@@ -174,14 +165,9 @@ async def c_yt(ctx, who = None):
     await ctx.send(embed=embed)
 
 async def c_give(ctx, who: str, mob: str):
-    """
-    Usage: !give <player> <mob>
-    Attempts to give one <mob> from your barn to <player>.
-    If their barn is full, the mob is sacrificed for emeralds instead.
-    """
     member = await resolve_member(ctx, who)
     if not member:
-        return await ctx.send("There is no user with this name")  # eye‐roll if no such user
+        return await ctx.send("There is no user with this name")
     if member.id == ctx.author.id:
         return await ctx.send("❌ You can’t give to yourself.")
 
@@ -189,82 +175,79 @@ async def c_give(ctx, who: str, mob: str):
     if mob_name not in MOBS:
         return await ctx.send(f"❌ `{mob_name}` isn’t a known mob.")
 
-    user_id   = ctx.author.id
-    target_id = member.id
+    giver_id   = ctx.author.id
+    target_id  = member.id
+    g          = ctx.guild.id
 
     async with db_pool.acquire() as conn:
-        # 2) Fetch target’s barn capacity and current fill
+        # Target barn capacity + current fill (per guild)
         row = await conn.fetchrow(
-            "SELECT barn_size FROM new_players WHERE user_id = $1",
-            target_id
+            "SELECT barn_size FROM new_players WHERE guild_id=$1 AND user_id=$2",
+            g, target_id
         )
         target_size = row["barn_size"] if row else 5
+
         total_in_barn = await conn.fetchval(
-            "SELECT COALESCE(SUM(count), 0) FROM barn WHERE user_id = $1",
-            target_id
+            "SELECT COALESCE(SUM(count), 0) FROM barn WHERE guild_id=$1 AND user_id=$2",
+            g, target_id
         )
 
-        # 3) Fetch one mob from your barn (prefer non-golden)
+        # Take one mob from giver (prefer non-golden)
         rec = await conn.fetchrow(
             """
             SELECT is_golden, count
               FROM barn
-             WHERE user_id = $1
-               AND mob_name = $2
+             WHERE guild_id=$1 AND user_id=$2 AND mob_name=$3
              ORDER BY is_golden ASC
              LIMIT 1
             """,
-            user_id, mob_name
+            g, giver_id, mob_name
         )
         if not rec:
             return await ctx.send(f"❌ You have no **{mob_name}** to give.")
         is_golden = rec["is_golden"]
         have      = rec["count"]
 
-        # 4) Remove it from your barn
         if have > 1:
             await conn.execute(
                 """
                 UPDATE barn
                    SET count = count - 1
-                 WHERE user_id = $1
-                   AND mob_name = $2
-                   AND is_golden = $3
+                 WHERE guild_id=$1 AND user_id=$2 AND mob_name=$3 AND is_golden=$4
                 """,
-                user_id, mob_name, is_golden
+                g, giver_id, mob_name, is_golden
             )
         else:
             await conn.execute(
                 """
                 DELETE FROM barn
-                WHERE user_id = $1
-                AND mob_name = $2
-                AND is_golden = $3
+                 WHERE guild_id=$1 AND user_id=$2 AND mob_name=$3 AND is_golden=$4
                 """,
-                user_id, mob_name, is_golden
+                g, giver_id, mob_name, is_golden
             )
 
-        # 5) If recipient has room, transfer it
+        # If recipient has room, transfer it
         if total_in_barn < target_size:
             await conn.execute(
                 """
-                INSERT INTO barn (user_id, mob_name, is_golden, count)
-                VALUES ($1, $2, $3, 1)
-                ON CONFLICT (user_id, mob_name, is_golden) DO UPDATE
-                  SET count = barn.count + 1
+                INSERT INTO barn (guild_id, user_id, mob_name, is_golden, count)
+                VALUES ($1, $2, $3, $4, 1)
+                ON CONFLICT (guild_id, user_id, mob_name, is_golden)
+                DO UPDATE SET count = barn.count + 1
                 """,
-                target_id, mob_name, is_golden
+                g, target_id, mob_name, is_golden
             )
             return await ctx.send(
                 f"✅ You gave {'✨ ' if is_golden else ''}**{mob_name}** to {member.mention}!"
             )
 
-        # 6) Otherwise, sacrifice it for emeralds to *you*
+        # Else, sacrifice it for emeralds to the **giver**
         rarity = MOBS[mob_name]["rarity"]
         base   = RARITIES[rarity]["emeralds"]
         reward = base * (2 if is_golden else 1)
 
-        sucsac(ctx,ctx.author,mob_name,is_golden,f"because {member.display_name}'s barn was full",conn)
+        # sucsac already handles granting emeralds & embed; make sure it’s guild-aware if needed
+        await sucsac(ctx, ctx.author, mob_name, is_golden, f"because {member.display_name}'s barn was full", conn)
 
     await ctx.send(
         f"⚠️ {member.display_name}`s barn is full, so you sacrificed "
@@ -314,6 +297,7 @@ async def c_craft(ctx, args):
       !craft pickaxe iron
     """
     user_id = ctx.author.id
+    guild_id = gid_from_ctx(ctx)
     if not args:
         return await ctx.send("❌ Usage: `!craft <tool> [tier]`")
 
@@ -335,13 +319,13 @@ async def c_craft(ctx, args):
         cost = 2
         tier = "diamond"
         async with db_pool.acquire() as conn:
-            await ensure_player(conn,ctx.author.id)
+            await ensure_player(conn,ctx.author.id,guild_id)
             # Fetch their resources
-            ore_have = await get_items(conn, user_id, "diamond")
+            ore_have = await get_items(conn, user_id, "diamond",guild_id)
             if ore_have < cost:
                 return await ctx.send(f"❌ You need {cost} diamonds to craft that.")
-            await give_items(user_id,"totem", 1, "items", False, conn)
-            await take_items(user_id, "diamond", cost, conn)
+            await give_items(user_id,"totem", 1, "items", False, conn,guild_id)
+            await take_items(user_id, "diamond", cost, conn, guild_id)
         return await ctx.send(f"🔨 You crafted a **totem**, you will now be get an extra life in a stronghold. You can only use one per run.")
 
     if tier is None:
@@ -354,14 +338,14 @@ async def c_craft(ctx, args):
     wood_cost, ore_cost, ore_col, uses = CRAFT_RECIPES[key]
 
     async with db_pool.acquire() as conn:
-        await ensure_player(conn,ctx.author.id)
+        await ensure_player(conn,ctx.author.id,guild_id)
         # Fetch their resources
         row = await conn.fetchrow("""SELECT
                 MAX(CASE WHEN item_name = 'wood' THEN quantity ELSE 0 END) AS wood,
                 MAX(CASE WHEN item_name = $2 THEN quantity ELSE 0 END) AS ore_have
                 FROM player_items
-                WHERE player_id = $1 AND item_name IN ('wood', $2);""",
-                user_id,ore_col)
+                WHERE player_id = $1 AND guild_id = $3 AND item_name IN ('wood', $2);""",
+                user_id,ore_col,guild_id)
         wood_have, ore_have = row["wood"], row["ore_have"]
 
         if wood_have < wood_cost or ore_have < ore_cost:
@@ -371,17 +355,17 @@ async def c_craft(ctx, args):
             return await ctx.send(f"❌ You need { ' and '.join(need) } to craft that.")
 
         # Deduct resources
-        await take_items(user_id,"wood",wood_cost,conn)
+        await take_items(user_id,"wood",wood_cost,conn,guild_id)
         if ore_col:
-            await take_items(user_id,ore_col,ore_cost,conn)
+            await take_items(user_id,ore_col,ore_cost,conn,guild_id)
 
         # Give the tool
         await conn.execute("""
-            INSERT INTO tools (user_id, tool_name, tier, uses_left)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (user_id, tool_name, tier) DO UPDATE
+            INSERT INTO tools (user_id, guild_id, tool_name, tier, uses_left)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (user_id, guild_id, tool_name, tier) DO UPDATE
               SET uses_left = tools.uses_left + EXCLUDED.uses_left;
-        """, user_id, tool, tier, uses)
+        """, user_id, guild_id, tool, tier, uses)
 
     await ctx.send(f"🔨 You crafted a **{tier.title()} {tool.replace('_',' ').title()}** with {uses} uses!")
 async def c_shop(ctx):
@@ -415,12 +399,12 @@ async def c_breed(ctx, mob: str):
         return await ctx.send(f"❌ You can’t breed a hostile mob like **{key}**.")
     
     wheat = RARITIES[MOBS[key]["rarity"]]["wheat"]
-
+    guild_id = gid_from_ctx(ctx)
     async with db_pool.acquire() as conn:
-        await ensure_player(conn, user_id)
+        await ensure_player(conn, user_id,guild_id)
 
         # 2) Check wheat balance
-        wheat_have = await get_items(conn, user_id, "wheat")
+        wheat_have = await get_items(conn, user_id, "wheat",guild_id)
         if wheat_have < wheat:
             return await ctx.send(
                 f"❌ You need **{wheat} wheat** to breed, but only have **{wheat_have}**."
@@ -431,9 +415,9 @@ async def c_breed(ctx, mob: str):
             """
             SELECT count
               FROM barn
-             WHERE user_id=$1 AND mob_name=$2 AND is_golden=false
+             WHERE user_id=$1 AND guild_id = $2 AND mob_name=$3 AND is_golden=false
             """,
-            user_id, key
+            user_id, guild_id, key
         ) or 0
         if have < 2:
             return await ctx.send(
@@ -442,12 +426,12 @@ async def c_breed(ctx, mob: str):
 
         # 4) Check barn space
         occupancy = await conn.fetchval(
-            "SELECT COALESCE(SUM(count), 0) FROM barn WHERE user_id = $1",
-            user_id
+            "SELECT COALESCE(SUM(count), 0) FROM barn WHERE user_id = $1 AND guild_id = $2",
+            user_id,guild_id
         )
         barn_size = await conn.fetchval(
-            "SELECT barn_size FROM new_players WHERE user_id = $1",
-            user_id
+            "SELECT barn_size FROM new_players WHERE user_id = $1 AND guild_id = $2",
+            user_id,guild_id
         )
         if occupancy >= barn_size:
             return await ctx.send(
@@ -455,8 +439,8 @@ async def c_breed(ctx, mob: str):
             )
 
         # 5) Deduct wheat and breed
-        await take_items(user_id, "wheat", wheat, conn)
-        new_count = await give_mob(conn, user_id, key)
+        await take_items(user_id, "wheat", wheat, conn,guild_id)
+        new_count = await give_mob(conn, user_id, key,guild_id)
 
     # 6) Success
     await ctx.send(
@@ -467,9 +451,9 @@ async def c_breed(ctx, mob: str):
 async def c_farm(ctx):
     """Farm for wheat, better hoe means more wheat."""
     user_id = ctx.author.id
-
+    guild_id = gid_from_ctx(ctx)
     async with db_pool.acquire() as conn:
-        await ensure_player(conn,ctx.author.id)
+        await ensure_player(conn,ctx.author.id,guild_id)
 
         # 1) Fetch all usable pickaxes
         pickaxes = await conn.fetch(
@@ -477,10 +461,11 @@ async def c_farm(ctx):
             SELECT tier, uses_left
               FROM tools
              WHERE user_id = $1
+               AND guild_id = $2
                AND tool_name = 'hoe'
                AND uses_left > 0
             """,
-            user_id
+            user_id, guild_id
         )
         # 2) Determine your highest tier hoe
         owned_tiers = {r["tier"] for r in pickaxes}
@@ -497,20 +482,21 @@ async def c_farm(ctx):
                 UPDATE tools
                 SET uses_left = uses_left - 1
                 WHERE user_id = $1
+                AND guild_id = $2
                 AND tool_name = 'hoe'
-                AND tier = $2
+                AND tier = $3
                 AND uses_left > 0
                 """,
-                user_id, best_tier
+                user_id, guild_id, best_tier
             )
 
         # 4) Pick a drop according to your tier’s table
         avg = WHEAT_DROP[best_tier]
         drop = random.randint(avg-1,avg+1)
 
-        await give_items(user_id,"wheat",drop,"resource",False,conn)
+        await give_items(user_id,"wheat",drop,"resource",False,conn,guild_id)
         # fetch new total
-        total = await get_items(conn,user_id,"wheat")
+        total = await get_items(conn,user_id,"wheat",guild_id)
 
     # Prepare the final result text
     if best_tier:
@@ -577,7 +563,7 @@ async def c_buy(ctx, args):
         lookup_name = raw_name
 
     user_id = ctx.author.id
-
+    guild_id = gid_from_ctx(ctx)
     async with db_pool.acquire() as conn:
         # 2) Look up the item
         item = await conn.fetchrow(
@@ -599,7 +585,7 @@ async def c_buy(ctx, args):
         total_cost = cost_each * qty
 
         # 3) Check emerald balance
-        have = await get_items(conn,user_id,"emeralds")
+        have = await get_items(conn,user_id,"emeralds",guild_id)
 
         if have < total_cost:
             return await ctx.send(
@@ -613,10 +599,11 @@ async def c_buy(ctx, args):
                 """
                 SELECT COUNT(*) FROM purchase_history
                  WHERE user_id = $1
+                   AND guild_id = $4
                    AND item_id = $2
                    AND purchased_at > $3
                 """,
-                user_id, item_id, since
+                user_id, item_id, since, guild_id
             )
             if bought + qty > limit:
                 return await ctx.send(
@@ -624,41 +611,41 @@ async def c_buy(ctx, args):
                 )
 
         # 5) Deduct emeralds
-        await take_items(user_id,"emeralds",total_cost,conn)
+        await take_items(user_id,"emeralds",total_cost,conn,guild_id)
 
         # 6) Log each purchase for history
         for _ in range(qty):
             await conn.execute(
-                "INSERT INTO purchase_history (user_id, item_id) VALUES ($1,$2)",
-                user_id, item_id
+                "INSERT INTO purchase_history (user_id, item_id, guild_id) VALUES ($1,$2,$3)",
+                user_id, item_id, guild_id
             )
         # 7) Update your cumulative purchases (e.g. boss tickets)
         await conn.execute("""
-            INSERT INTO shop_purchases (user_id,item_id,quantity)
-            VALUES ($1,$2,$3)
-            ON CONFLICT (user_id,item_id) DO UPDATE
+            INSERT INTO shop_purchases (user_id,item_id,quantity,guild_id)
+            VALUES ($1,$2,$3,$4)
+            ON CONFLICT (user_id,item_id,guild_id) DO UPDATE
               SET quantity = shop_purchases.quantity + $3
-        """, user_id, item_id, qty)
+        """, user_id, item_id, qty,guild_id)
 
     # 8) Grant the effect
     async with db_pool.acquire() as conn:
         if display_name == "Exp Bottle":
             await ctx.send(f"✅ Spent {total_cost} 💠 for an Exp Bottle with **{qty} EXP**! Say **!use Exp Bottle** to use them, you must use them all at once though")
-            await give_items(user_id,"Exp Bottle",qty,"items",True,conn)
+            await give_items(user_id,"Exp Bottle",qty,"items",True,conn,guild_id)
 
         elif display_name == "Boss Mob Ticket":
             await ctx.send(
                 f"✅ You bought **{qty} Boss Mob Ticket{'s' if qty!=1 else ''}**! "
                 "Use `!use Ticket <mob name>` before stream to redeem, this allows you to say the name of the mob during the stream to spawn it, don't worry about typos, it will still be valid."
             )
-            await give_items(user_id,"Boss Mob Ticket",qty,"items",True,conn)
+            await give_items(user_id,"Boss Mob Ticket",qty,"items",True,conn,guild_id)
 
         elif display_name == "Mystery Animal":
             await ctx.send(
                 f"✅ You bought **{qty} Mystery Mob Pack{'s' if qty!=1 else ''}**! "
                 "Use `!use Mob Pack` to redeem"
             )
-            await give_items(user_id,"Mystery Mob Pack",qty,"items",True,conn)
+            await give_items(user_id,"Mystery Mob Pack",qty,"items",True,conn,guild_id)
 
         #     got = []
         #     mobs = ([m for m,v in MOBS.items() if not v["hostile"]])
@@ -697,6 +684,7 @@ async def c_buy(ctx, args):
 async def c_exp_cmd(ctx, who: str = None):
     """Show your current level and progress toward the next level."""
     # Resolve who → Member (or fallback to author)
+    guild_id = gid_from_ctx(ctx)
     if who is None:
         member = ctx.author
     else:
@@ -710,8 +698,8 @@ async def c_exp_cmd(ctx, who: str = None):
     # 1) Fetch their total exp from accountinfo
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT experience FROM accountinfo WHERE discord_id = $1",
-            user_id
+            "SELECT experience FROM accountinfo WHERE discord_id = $1 AND guild_id = $2",
+            user_id,guild_id
         )
     total_exp = row["experience"] if row else 0
 
@@ -756,6 +744,7 @@ async def c_exp_cmd(ctx, who: str = None):
 async def c_leaderboard(ctx,bot):
     """Show the top 10 users by overall EXP, plus your own rank."""
     user_id = ctx.author.id
+    guild_id = gid_from_ctx(ctx)
 
     async with db_pool.acquire() as conn:
         # 1) Top 10 overall EXP
@@ -763,21 +752,22 @@ async def c_leaderboard(ctx,bot):
             """
             SELECT discord_id, overallexp
               FROM accountinfo
+              WHERE guild_id = $1
              ORDER BY overallexp DESC
              LIMIT 10
-            """
+            """, guild_id
         )
         # 2) Get invoking user’s total EXP
         user_row = await conn.fetchrow(
-            "SELECT overallexp FROM accountinfo WHERE discord_id = $1",
-            user_id
+            "SELECT overallexp FROM accountinfo WHERE discord_id = $1 AND guild_id = $2",
+            user_id,guild_id
         )
         user_exp = user_row["overallexp"] if user_row else 0
 
         # 3) Compute their rank (1-based)
         higher_count = await conn.fetchval(
-            "SELECT COUNT(*) FROM accountinfo WHERE overallexp > $1",
-            user_exp
+            "SELECT COUNT(*) FROM accountinfo WHERE overallexp > $1 AND guild_id = $2",
+            user_exp,guild_id
         )
         user_rank = higher_count + 1
 
@@ -818,7 +808,7 @@ async def c_leaderboard(ctx,bot):
 async def c_givemob(ctx, who, mob_name: str, count: int = 1):
     mob_name = mob_name.lower()
     member = await resolve_member(ctx, who)
-    
+    guild_id = gid_from_ctx(ctx)
     # Validate mob
     if mob_name.title() not in MOBS:
         return await ctx.send(f"❌ Mob `{mob_name}` not found.")
@@ -830,13 +820,13 @@ async def c_givemob(ctx, who, mob_name: str, count: int = 1):
     async with db_pool.acquire() as conn:
         # 2) Fetch target’s barn capacity and current fill
         row = await conn.fetchrow(
-            "SELECT barn_size FROM new_players WHERE user_id = $1",
-            member.id
+            "SELECT barn_size FROM new_players WHERE user_id = $1 AND guild_id = $2",
+            member.id, guild_id
         )
         target_size = row["barn_size"] if row else 5
         total_in_barn = await conn.fetchval(
-            "SELECT COALESCE(SUM(count), 0) FROM barn WHERE user_id = $1",
-            member.id
+            "SELECT COALESCE(SUM(count), 0) FROM barn WHERE user_id = $1 AND guild_id = $2",
+            member.id, guild_id
         )
         if MOBS[mob_name.title()]["hostile"]:
             await sucsac(ctx,member,mob_name,False,"Because it cannot be captured",conn)
@@ -845,12 +835,12 @@ async def c_givemob(ctx, who, mob_name: str, count: int = 1):
         if total_in_barn+count <= target_size:
             await conn.execute(
                 """
-                INSERT INTO barn (user_id, mob_name, is_golden, count)
-                VALUES ($1, $2, $3, 1)
+                INSERT INTO barn (user_id, mob_name, is_golden, count, guild_id)
+                VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (user_id, mob_name, is_golden) DO UPDATE
                   SET count = barn.count + $4
                 """,
-                member.id, mob_name, False, count
+                member.id, mob_name, False, count,guild_id
             )
     
             return await ctx.send(f"✅ Gave {count} × `{mob_name}` to {member.mention}.")
@@ -863,16 +853,17 @@ async def c_sac(ctx, mob_name: str):
     Usage: !sacrifice <mob name>
     """
     user_id = ctx.author.id
+    guild_id = gid_from_ctx(ctx)
     key = mob_name.title()
     # Check for special @beennn sacrifice case
     if mob_name.lower() in ("@beeeenjaminnn", "<@674671907626287151>", "been","beenn"):  # replace with their real user ID
         async with db_pool.acquire() as conn:
-            diamond_count = await get_items(conn, user_id, "diamond")
+            diamond_count = await get_items(conn, user_id, "diamond",guild_id)
             if diamond_count == 0:
                 return await ctx.send("💎 You don’t even have a diamond to take **L**.")
             
             # Remove one diamond
-            await take_items(user_id, "diamond", 1, conn)
+            await take_items(user_id, "diamond", 1, conn,guild_id)
             await ctx.send(f"💀 You were a fool to think you could sacrifice Beenn, he beat you in combat and took a diamond.")
             return
     # validate mob
@@ -887,64 +878,32 @@ async def c_sac(ctx, mob_name: str):
             """
             SELECT count, is_golden
               FROM barn
-             WHERE user_id=$1 AND mob_name=$2
+             WHERE user_id=$1 AND mob_name=$2 AND guild_id = $3
              ORDER BY is_golden DESC
              LIMIT 1
             """,
-            user_id, key
+            user_id, key, guild_id
         )
 
         if not rec:
             return await ctx.send(f"❌ You have no **{key}** to sacrifice.")
         have     = rec["count"]
         is_gold  = rec["is_golden"]
-        # remove one
-        swords = await conn.fetch(
-            """
-            SELECT tier, uses_left
-              FROM tools
-             WHERE user_id = $1
-               AND tool_name = 'sword'
-               AND uses_left > 0
-            """,
-            user_id
-        )
-        owned_tiers = {r["tier"] for r in swords}
-        best_tier = None
-        for tier in reversed(TIER_ORDER):
-            if tier in owned_tiers:
-                best_tier = tier
-                break
-        if is_gold:
-            reward*=2
-        num = SWORDS[best_tier]
-        reward += num
-        await conn.execute(
-            """
-            UPDATE tools
-               SET uses_left = uses_left - 1
-             WHERE user_id = $1
-               AND tool_name = 'sword'
-               AND tier = $2
-               AND uses_left > 0
-            """,
-            user_id, best_tier
-        )
         if have > 1:
             await conn.execute(
-                "UPDATE barn SET count = count - 1 WHERE user_id=$1 AND mob_name=$2",
-                user_id, key
+                "UPDATE barn SET count = count - 1 WHERE user_id=$1 AND guild_id = $2 AND mob_name=$3",
+                user_id, guild_id, key
             )
         else:
             await conn.execute(
-                "DELETE FROM barn WHERE user_id=$1 AND mob_name=$2",
-                user_id, key
+                "DELETE FROM barn WHERE user_id=$1 AND guild_id = $2 AND mob_name = $3",
+                user_id, guild_id, key
             )
         await sucsac(ctx,ctx.author,mob_name,is_gold,"",conn)
 
 async def c_bestiary(ctx, who: str = None):
     """Show all mobs you’ve sacrificed, split by Golden vs. normal and by rarity."""
-
+    guild_id = gid_from_ctx(ctx)
     # Resolve who → Member (or fallback to author)
     if who is None:
         member = ctx.author
@@ -960,11 +919,11 @@ async def c_bestiary(ctx, who: str = None):
             """
             SELECT mob_name, is_golden, rarity, COUNT(*) AS cnt
               FROM sacrifice_history
-             WHERE discord_id = $1
+             WHERE discord_id = $1 AND guild_id = $2
              GROUP BY is_golden, rarity, mob_name
              ORDER BY is_golden DESC, rarity ASC, mob_name
             """,
-            user_id
+            user_id,guild_id
         )
 
     # organize: data[gold_flag][rarity] = [(mob, cnt), ...]
@@ -1002,19 +961,20 @@ async def c_bestiary(ctx, who: str = None):
 async def c_chop(ctx):
     """Gain 1 wood every 60s."""
     user_id = ctx.author.id
-
+    guild_id = gid_from_ctx(ctx)
     async with db_pool.acquire() as conn:
-        await ensure_player(conn,ctx.author.id)
+        await ensure_player(conn,ctx.author.id,guild_id)
         # 1) Fetch all usable pickaxes
         axes = await conn.fetch(
             """
             SELECT tier, uses_left
               FROM tools
              WHERE user_id = $1
+             AND guild_id = $2
                AND tool_name = 'axe'
                AND uses_left > 0
             """,
-            user_id
+            user_id, guild_id
         )
         owned_tiers = {r["tier"] for r in axes}
         best_tier = None
@@ -1025,20 +985,21 @@ async def c_chop(ctx):
         
         num = AXEWOOD[best_tier]
         # grant 1 wood
-        await give_items(user_id,"wood",num,"resource",False,conn)
+        await give_items(user_id,"wood",num,"resource",False,conn,guild_id)
         await conn.execute(
             """
             UPDATE tools
                SET uses_left = uses_left - 1
              WHERE user_id = $1
+             AND guild_id = $2
                AND tool_name = 'axe'
-               AND tier = $2
+               AND tier = $3
                AND uses_left > 0
             """,
-            user_id, best_tier
+            user_id, guild_id, best_tier
         )
         # fetch the updated wood count
-        wood = await get_items(conn,user_id,"wood")
+        wood = await get_items(conn,user_id,"wood",guild_id)
 
     await ctx.send(
         f"{ctx.author.mention} swung their axe and chopped 🌳 **{num} wood**! "
@@ -1048,19 +1009,20 @@ async def c_chop(ctx):
 async def c_mine(ctx):
     """Mine for cobblestone or ores; better pickaxes yield rarer drops."""
     user_id = ctx.author.id
-
+    guild_id = gid_from_ctx(ctx)
     async with db_pool.acquire() as conn:
-        await ensure_player(conn,ctx.author.id)
+        await ensure_player(conn,ctx.author.id,guild_id)
         # 1) Fetch all usable pickaxes
         pickaxes = await conn.fetch(
             """
             SELECT tier, uses_left
               FROM tools
              WHERE user_id = $1
+             AND guild_id = $2
                AND tool_name = 'pickaxe'
                AND uses_left > 0
             """,
-            user_id
+            user_id,guild_id
         )
 
         if not pickaxes:
@@ -1083,11 +1045,12 @@ async def c_mine(ctx):
             UPDATE tools
                SET uses_left = uses_left - 1
              WHERE user_id = $1
+             AND guild_id = $2
                AND tool_name = 'pickaxe'
-               AND tier = $2
+               AND tier = $3
                AND uses_left > 0
             """,
-            user_id, best_tier
+            user_id, guild_id, best_tier
         )
 
         # 4) Pick a drop according to your tier’s table
@@ -1104,10 +1067,10 @@ async def c_mine(ctx):
         amount = random.randint(drop_info["min"], drop_info["max"])
 
         # 5) Grant the drop
-        await give_items(user_id,chosen_ore,amount,"resource",False,conn)
+        await give_items(user_id,chosen_ore,amount,"resource",False,conn,guild_id)
         # fetch new total
         
-        total = await get_items(conn, user_id, chosen_ore)
+        total = await get_items(conn, user_id, chosen_ore,guild_id)
 
     # Prepare the final result text
     emojis = {"cobblestone":"🪨","iron":"🔩","gold":"🪙","diamond":"💎"}
@@ -1139,6 +1102,7 @@ async def c_mine(ctx):
 async def c_inv(ctx, who: str = None):
     """Show your inventory."""
     # Resolve member
+    guild_id = gid_from_ctx(ctx)
     if who is None:
         member = ctx.author
     else:
@@ -1154,22 +1118,22 @@ async def c_inv(ctx, who: str = None):
         items = await conn.fetch("""
             SELECT item_name, category, quantity
             FROM player_items
-            WHERE player_id = $1 AND quantity > 0
-        """, user_id)
+            WHERE player_id = $1 AND guild_id = $2 AND quantity > 0
+        """, user_id, guild_id)
 
         # 2. Tools
         tools = await conn.fetch("""
             SELECT tool_name, tier, uses_left
             FROM tools
-            WHERE user_id = $1 AND uses_left > 0
-        """, user_id)
+            WHERE user_id = $1 AND guild_id = $2 AND uses_left > 0
+        """, user_id,guild_id)
 
         # 3. Emeralds (still in old table)
         emerald_row = await conn.fetchrow("""
             SELECT emeralds
             FROM accountinfo
-            WHERE discord_id = $1
-        """, user_id)
+            WHERE discord_id = $1 AND guild_id = $2
+        """, user_id,guild_id)
         emeralds = emerald_row["emeralds"] if emerald_row else 0
 
     # Empty check
@@ -1236,6 +1200,7 @@ async def c_inv(ctx, who: str = None):
 async def c_barn(ctx, who: str = None):
     """Show your barn split by Golden vs. normal and by rarity."""
     # Resolve who → Member (or fallback to author)
+    
     if who is None:
         member = ctx.author
     else:
@@ -1245,21 +1210,21 @@ async def c_barn(ctx, who: str = None):
 
     # Now you’ve got a real Member with .id, .display_name, etc.
     user_id = member.id
-
+    guild_id = gid_from_ctx(ctx)
     # 1) Fetch barn entries
     async with db_pool.acquire() as conn:
         rows = await conn.fetch(
             """
             SELECT mob_name, is_golden, count
               FROM barn
-             WHERE user_id = $1 AND count > 0
+             WHERE user_id = $1 AND count > 0 AND guild_id = $2
              ORDER BY is_golden DESC, mob_name
             """,
-            user_id
+            user_id,guild_id
         )
         # fetch barn size & next upgrade cost if you still want those
         size_row = await conn.fetchrow(
-            "SELECT barn_size FROM new_players WHERE user_id = $1", user_id
+            "SELECT barn_size FROM new_players WHERE user_id = $1 AND guild_id", user_id, guild_id
         )
         size = size_row["barn_size"] if size_row else 5
 
@@ -1309,19 +1274,19 @@ async def c_barn(ctx, who: str = None):
 async def c_upbarn(ctx):
     """Upgrades your barn by +1 slot, costing (upgrades + 1) wood."""
     user_id = ctx.author.id
-
+    guild_id = gid_from_ctx(ctx)
     async with db_pool.acquire() as conn:
-        await ensure_player(conn,user_id)
+        await ensure_player(conn,user_id,guild_id)
         # 2) Ensure barn_upgrades row exists
         await conn.execute(
-            "INSERT INTO barn_upgrades (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
-            user_id
+            "INSERT INTO barn_upgrades (user_id, guild_id) VALUES ($1,$2) ON CONFLICT DO NOTHING;",
+            user_id,guild_id
         )
 
         # 3) Get how many times they’ve upgraded
         up = await conn.fetchrow(
-            "SELECT times_upgraded FROM barn_upgrades WHERE user_id = $1",
-            user_id
+            "SELECT times_upgraded FROM barn_upgrades WHERE user_id = $1 AND guild_id = $2",
+            user_id,guild_id
         )
         times_upgraded = up["times_upgraded"]
 
@@ -1330,12 +1295,12 @@ async def c_upbarn(ctx):
 
         # 5) Check they have enough wood
         pl = await conn.fetchrow(
-            "SELECT barn_size FROM new_players WHERE user_id = $1",
-            user_id
+            "SELECT barn_size FROM new_players WHERE user_id = $1 AND guild_id = $2",
+            user_id,guild_id
         )
         current_size = pl["barn_size"]
 
-        player_wood = await get_items(conn, user_id, "wood")
+        player_wood = await get_items(conn, user_id, "wood",guild_id)
 
         if player_wood < next_cost:
             return await ctx.send(
@@ -1344,27 +1309,27 @@ async def c_upbarn(ctx):
             )
 
         # 6) Perform the upgrade
-        await take_items(user_id,"wood",next_cost,conn)
+        await take_items(user_id,"wood",next_cost,conn,guild_id)
         await conn.execute(
             """
             UPDATE barn_upgrades
                SET times_upgraded = times_upgraded + 1
-             WHERE user_id = $1
+             WHERE user_id = $1 AND guild_id = $2
             """,
-            user_id
+            user_id,guild_id
         )
 
         await conn.fetchrow(
-            "UPDATE new_players SET barn_size = barn_size+1 WHERE user_id = $1",
-            user_id
+            "UPDATE new_players SET barn_size = barn_size+1 WHERE user_id = $1 AND guild_id=$2",
+            user_id,guild_id
         )
         # 7) Fetch post‐upgrade values
         row = await conn.fetchrow(
-            "SELECT barn_size FROM new_players WHERE user_id = $1",
-            user_id
+            "SELECT barn_size FROM new_players WHERE user_id = $1 AND guild_id = $2",
+            user_id,guild_id
         )
 
-        new_wood = await get_items(conn, user_id, "wood")
+        new_wood = await get_items(conn, user_id, "wood",guild_id)
         new_size = row["barn_size"]
 
     # 8) Report back
@@ -1395,23 +1360,25 @@ async def tint_image(image: Image.Image, tint: tuple[int, int, int]) -> Image.Im
 async def make_fish(ctx,fish_path: str):
 
     user_id = ctx.author.id
+    guild_id = gid_from_ctx(ctx)
     # Pick 2 distinct colors
     color_names = random.sample(list(MINECRAFT_COLORS.keys()), 2)
     color1 = MINECRAFT_COLORS[color_names[0]]
     color2 = MINECRAFT_COLORS[color_names[1]]
     typef = random.choice(FISHTYPES)
     async with db_pool.acquire() as conn:
-        await ensure_player(conn,ctx.author.id)
+        await ensure_player(conn,ctx.author.id,guild_id)
         # 1) Fetch all usable rods
         rods = await conn.fetch(
             """
             SELECT tier, uses_left
               FROM tools
              WHERE user_id = $1
+               AND guild_id = $2
                AND tool_name = 'fishing_rod'
                AND uses_left > 0
             """,
-            user_id
+            user_id, guild_id
         )
 
         if not rods:
@@ -1432,21 +1399,22 @@ async def make_fish(ctx,fish_path: str):
             UPDATE tools
                SET uses_left = uses_left - 1
              WHERE user_id = $1
+             AND guild_id = $2
                AND tool_name = 'fishing_rod'
-               AND tier = $2
+               AND tier = $3
                AND uses_left > 0
             """,
-            user_id,best_tier
+            user_id,guild_id,best_tier
         )
         chance = random.randint(0,100)
         if chance>FISHINGCHANCE[best_tier]:
             
             await conn.execute(
                 """
-                INSERT INTO aquarium (user_id,color1,color2,type)
-                VALUES ($1,$2,$3,$4)
+                INSERT INTO aquarium (user_id,guild_id,color1,color2,type)
+                VALUES ($1,$2,$3,$4,$5)
                 """,
-                user_id,color_names[0],color_names[1],typef
+                user_id,guild_id,color_names[0],color_names[1],typef
             )
         else:
             return await ctx.send("You caught a sea pickle, yuck!!! you throw it back in the ocean")
@@ -1482,6 +1450,7 @@ async def make_fish(ctx,fish_path: str):
 async def c_generate_aquarium(ctx, who):
     background_path="assets/fish/aquarium.png"
     # Resolve who → Member (or fallback to author)
+    guild_id = gid_from_ctx(ctx)
     if who is None:
         member = ctx.author
     else:
@@ -1501,10 +1470,11 @@ async def c_generate_aquarium(ctx, who):
         SELECT color1, color2, type
         FROM aquarium                 
         WHERE user_id = $1
+        AND guild_id = $2
         ORDER BY time_caught DESC
         LIMIT 30    
                          """,
-                         user_id)
+                         user_id,guild_id)
     fish_specs = []
     for r in row:
         fish_specs += [[r["color1"],r["color2"],r["type"]]]
@@ -1587,6 +1557,7 @@ async def c_generate_aquarium(ctx, who):
 
 async def c_use(ctx, bot, item_name, quantity):
     user_id = ctx.author.id
+    guild_id = gid_from_ctx(ctx)
     item_name = item_name.lower()
 
     if quantity <= 0:
@@ -1607,8 +1578,8 @@ async def c_use(ctx, bot, item_name, quantity):
         row = await conn.fetchrow("""
             SELECT quantity, useable
             FROM player_items
-            WHERE player_id = $1 AND LOWER(item_name) = $2
-        """, user_id, item_name)
+            WHERE player_id = $1 AND LOWER(item_name) = $2 AND guild_id = $3
+        """, user_id, item_name,guild_id)
 
         if not row:
             return await ctx.send(f"❌ You don’t have any **{item_name}**.")
@@ -1624,13 +1595,13 @@ async def c_use(ctx, bot, item_name, quantity):
             await conn.execute("""
                 UPDATE player_items
                 SET quantity = $1
-                WHERE player_id = $2 AND LOWER(item_name) = $3
-            """, remaining, user_id, item_name)
+                WHERE player_id = $2 AND LOWER(item_name) = $3 AND guild_id = $4
+            """, remaining, user_id, item_name,guild_id)
         else:
             await conn.execute("""
                 DELETE FROM player_items
-                WHERE player_id = $1 AND LOWER(item_name) = $2
-            """, user_id, item_name)
+                WHERE player_id = $1 AND LOWER(item_name) = $2 AND guild_id = $3
+            """, user_id, item_name,guild_id)
     # 🎉 Effect (optional)
     if item_name == "mystery mob pack":
         got = []
@@ -1645,17 +1616,17 @@ async def c_use(ctx, bot, item_name, quantity):
                 mob = random.choices(mobs, weights=weights, k=1)[0]
                 
                 await conn.execute(
-                    "INSERT INTO barn_upgrades (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
-                    user_id
+                    "INSERT INTO barn_upgrades (user_id,guild_id) VALUES ($1,$2) ON CONFLICT DO NOTHING;",
+                    user_id,guild_id
                 )
                 # count current barn occupancy
                 occ = await conn.fetchval(
-                    "SELECT COALESCE(SUM(count),0) FROM barn WHERE user_id = $1",
-                    user_id
+                    "SELECT COALESCE(SUM(count),0) FROM barn WHERE user_id = $1 AND guild_id = $2",
+                    user_id,guild_id
                 )
                 size = await conn.fetchval(
-                    "SELECT barn_size FROM new_players WHERE user_id = $1",
-                    user_id
+                    "SELECT barn_size FROM new_players WHERE user_id = $1 AND guild_id = $2",
+                    user_id,guild_id
                 )
                 if occ >= size:
                     sac = True
@@ -1667,7 +1638,7 @@ async def c_use(ctx, bot, item_name, quantity):
                     reward = await sucsac(ctx.channel,ctx.author,mob,is_golden,"because the mob is hostile",conn)
                     note = f"this mob is not catchable so it was sacrificed for {reward} emeralds"
                 else:
-                    await give_mob(conn, user_id, mob)
+                    await give_mob(conn, user_id, mob,guild_id)
                     got.append(mob)
                 await asyncio.sleep(1)
         # summarize what they got
@@ -1678,11 +1649,11 @@ async def c_use(ctx, bot, item_name, quantity):
         await ctx.send(f"Mystery pack used:\n" + "\n".join(lines))
     elif item_name == "exp bottle":
         async with db_pool.acquire() as conn:
-            await gain_exp(conn,bot,user_id,quantity)
+            await gain_exp(conn,bot,user_id,quantity,None)
     elif item_name == "fish food":        
         emeralds_to_give = quantity // 100
         async with db_pool.acquire() as conn:
-            await give_items(user_id, "emeralds", emeralds_to_give,"emeralds",False,conn)
+            await give_items(user_id, "emeralds", emeralds_to_give,"emeralds",False,conn,guild_id)
         await ctx.send(f"💠 You traded {quantity} fish food for {emeralds_to_give} emeralds!")
     elif item_name == "boss mob ticket":
         # ID of the user to ping (as a mention)
@@ -1695,13 +1666,15 @@ async def c_use(ctx, bot, item_name, quantity):
     await ctx.send(f"✅ You used {quantity} **{item_name}**!")
 
 async def c_stronghold(ctx):
+    guild_id = gid_from_ctx(ctx)
     async with db_pool.acquire() as conn:
-        cobble = await get_items(conn, ctx.author.id, "cobblestone")
-        totems = await get_items(conn, ctx.author.id, "totem")
+        cobble = await get_items(conn, ctx.author.id, "cobblestone",guild_id)
+        totems = await get_items(conn, ctx.author.id, "totem",guild_id)
         if cobble < 6:
             return await ctx.send(f"❌ You need 6 cobblestone to enter")
-        await take_items(ctx.author.id, "cobblestone", 6, conn)
-    view = PathButtons(level=0, collected={}, player_id=ctx.author.id, db_pool=db_pool, totems=totems)
+        await take_items(ctx.author.id, "cobblestone", 6, conn,guild_id)
+    
+    view = PathButtons(level=0, collected={}, player_id=ctx.author.id, db_pool=db_pool, used_totem=False, totems=totems,guild_id=guild_id)
     embed = discord.Embed(
         title="Stronghold - Room 0",
         description="Choose a door to begin your descent...",

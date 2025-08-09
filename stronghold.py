@@ -49,18 +49,16 @@ STRONGHOLD_LOOT = {
 
 
 class PathButtons(discord.ui.View):
-    def __init__(self, level, collected, player_id, db_pool, totems):
+    def __init__(self, level, collected, player_id, db_pool, used_totem, totems, guild_id):
         super().__init__()
         self.level = level
         self.collected = collected
         self.player_id = player_id
         self.db_pool = db_pool
         self.death_path = random.randint(1, 4)
-        self.used_totem = False
+        self.used_totem = used_totem
         self.player_totems = totems
-    async def async_init(self):
-        async with self.db_pool.acquire() as conn:
-            self.player_totems = await get_items(conn, self.player_id, "totem")
+        self.guild_id = guild_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return interaction.user.id == self.player_id
@@ -77,7 +75,8 @@ class PathButtons(discord.ui.View):
                     return
                 else:
                     async with self.db_pool.acquire() as conn:
-                        await take_items(self.player_id, "totem", 1, conn)
+                        await take_items(self.player_id, "totem", 1, conn,self.guild_id)
+                    self.used_totem = True
                     await interaction.response.edit_message(
                         content="Your totem saved you from death, be careful",
                         view=self
@@ -106,7 +105,7 @@ class PathButtons(discord.ui.View):
                 # 💾 Give collected items
                 async with self.db_pool.acquire() as conn:
                     for item, amt in self.collected.items():
-                        await give_items(self.player_id, item, amt, item, True, conn)
+                        await give_items(self.player_id, item, amt, item, True, conn,self.guild_id)
 
                 await interaction.response.edit_message(
                     content=f"🎉 You've conquered all 25 levels of the stronghold!\n\n**Final Loot:**\n{summary}",
@@ -120,7 +119,7 @@ class PathButtons(discord.ui.View):
             embed.add_field(name="📦 Total Loot", value="\n".join(f"{v}× {k}" for k, v in self.collected.items()), inline=False)
             embed.set_footer(text="Choose a path...")
 
-            next_view = PathButtons(next_level, self.collected, self.player_id, self.db_pool)
+            next_view = PathButtons(next_level, self.collected, self.player_id, self.db_pool, self.used_totem,self.player_totems, self.guild_id)
             await interaction.response.edit_message(embed=embed, view=next_view)
 
         except Exception as e:
@@ -133,7 +132,7 @@ class PathButtons(discord.ui.View):
     async def give_loot(self):
         async with self.db_pool.acquire() as conn:
             for item, amount in self.collected.items():
-                await give_items(self.player_id, item, amount, ITEMS[item]["category"], ITEMS[item]["useable"], conn)
+                await give_items(self.player_id, item, amount, ITEMS[item]["category"], ITEMS[item]["useable"], conn,self.guild_id)
 
     @discord.ui.button(label="Path 1", style=discord.ButtonStyle.primary)
     async def path1(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -162,10 +161,10 @@ class PathButtons(discord.ui.View):
         await self.give_loot()
 
 # make sure give_items is implemented:
-async def give_items(user_id, item_name, amount, category, useable, conn):
+async def give_items(user_id, item_name, amount, category, useable, conn, guild_id):
     await conn.execute("""
-        INSERT INTO player_items (player_id, item_name, quantity, category, useable)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (player_id, item_name)
+        INSERT INTO player_items (player_id, guild_id, item_name, quantity, category, useable)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (player_id, guild_id, item_name)
         DO UPDATE SET quantity = player_items.quantity + EXCLUDED.quantity
-    """, user_id, item_name, amount, category, useable)
+    """, user_id, guild_id, item_name, amount, category, useable)

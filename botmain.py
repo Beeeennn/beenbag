@@ -54,147 +54,124 @@ bot = commands.Bot(
     intents=intents
 )
 
-
 #hold an asyncpg pool here
 db_pool: asyncpg.Pool = None
 
-async def hourly_channel_exp_flush():
-    await bot.wait_until_ready()
-    ch = bot.get_channel(1396194783713824800)
-    while True:
-        async with db_pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT channel_id, exp
-                  FROM channel_exp
-                 WHERE exp > 0
-            """)
-            # zero them out
-            await conn.execute("UPDATE channel_exp SET exp = 0 WHERE exp > 0")
-            # hand each off to your existing gain_exp (which updates DB + roles)
-            for record in rows:
-                uid = await conn.fetch("""
-                                        SELECT discord_id, yt_channel_name
-                                        FROM accountinfo
-                                        WHERE yt_channel_id = $1                                      
-                                        """,record["channel_id"])
-                xp  = record["exp"]
-                name = uid["name"]
-                #ch.send(f"Giving **{xp}** exp to **{name}** for watching my stream")
-                await asyncio.sleep(1)
-                # pass None for ctx so gain_exp just does DB+roles without messaging
-                await u.gain_exp(conn,bot,uid["discord_id"], xp, None)
-        # wait one hour
-        await asyncio.sleep(3600)
+# async def daily_level_decay():
+#     tz = ZoneInfo("Europe/London")
+#     await bot.wait_until_ready()
+#     ch=bot.get_channel(1396194783713824800)
+#     while True:
+#         # compute seconds until next midnight in London
+#         now = datetime.now(tz)
+#         tomorrow = (now + timedelta(days=1)).replace(
+#             hour=0, minute=0, second=0, microsecond=0
+#         )
+#         delay = (tomorrow - now).total_seconds()
+#         await asyncio.sleep(delay)
+#         ch.send("Now removing 1 level from everyone, gotta stay active!")
+#         # 1) Demote everyone by one level
+#         async with db_pool.acquire() as conn:
+#             rows = await conn.fetch("SELECT discord_id, guild_id, exp FROM accountinfo")
+#         for record in rows:
+#             user_id = record["discord_id"]
+#             guild_id = record["guild_id"]
+#             old_exp = record["exp"]
+#             old_lvl = u.get_level_from_exp(old_exp)
+#             if old_lvl <= 0:
+#                 continue  # they’re already at level 0
 
-async def daily_level_decay():
-    tz = ZoneInfo("Europe/London")
-    await bot.wait_until_ready()
-    ch=bot.get_channel(1396194783713824800)
-    while True:
-        # compute seconds until next midnight in London
-        now = datetime.now(tz)
-        tomorrow = (now + timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        delay = (tomorrow - now).total_seconds()
-        await asyncio.sleep(delay)
-        ch.send("Now removing 1 level from everyone, gotta stay active!")
-        # 1) Demote everyone by one level
-        async with db_pool.acquire() as conn:
-            rows = await conn.fetch("SELECT discord_id, exp FROM accountinfo")
-        for record in rows:
-            user_id = record["discord_id"]
-            old_exp = record["exp"]
-            old_lvl = u.get_level_from_exp(old_exp)
-            if old_lvl <= 0:
-                continue  # they’re already at level 0
+#             # compute new exp so they drop exactly one level
+#             new_lvl = old_lvl - 1
+#             if new_lvl > 0:
+#                 new_exp = LEVEL_EXP[new_lvl] - 1
+#             else:
+#                 new_exp = old_exp
 
-            # compute new exp so they drop exactly one level
-            new_lvl = old_lvl - 1
-            if new_lvl > 0:
-                new_exp = LEVEL_EXP[new_lvl] - 1
-            else:
-                new_exp = old_exp
+#             # write it back
+#             async with db_pool.acquire() as conn:
+#                 await conn.execute(
+#                     "UPDATE accountinfo SET exp = $1 WHERE discord_id = $2 AND guild_id = $3",
+#                     new_exp, user_id, guild_id
+#                 )
 
-            # write it back
-            async with db_pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE accountinfo SET exp = $1 WHERE discord_id = $2",
-                    new_exp, user_id
-                )
+#             # 2) Fix up roles in every guild we share
+#             for guild in bot.guilds:
+#                 member = guild.get_member(user_id)
+#                 if not member:
+#                     continue
+#                 # remove old milestone role if they had one
+#                 if old_lvl in MILESTONE_ROLES:
+#                     old_role = discord.utils.get(
+#                         guild.roles, name=ROLE_NAMES[old_lvl]
+#                     )
+#                     if old_role in member.roles:
+#                         await member.remove_roles(old_role, reason="Daily level decay")
+#                     if old_lvl > 11:
+#                         new_role = discord.utils.get(
+#                         guild.roles, name=ROLE_NAMES[old_lvl-10]
+#                     )
+#                         await member.add_roles(new_role, reason="Daily level decay")
 
-            # 2) Fix up roles in every guild we share
-            for guild in bot.guilds:
-                member = guild.get_member(user_id)
-                if not member:
-                    continue
-                # remove old milestone role if they had one
-                if old_lvl in MILESTONE_ROLES:
-                    old_role = discord.utils.get(
-                        guild.roles, name=ROLE_NAMES[old_lvl]
-                    )
-                    if old_role in member.roles:
-                        await member.remove_roles(old_role, reason="Daily level decay")
-                    if old_lvl > 11:
-                        new_role = discord.utils.get(
-                        guild.roles, name=ROLE_NAMES[old_lvl-10]
-                    )
-                        await member.add_roles(new_role, reason="Daily level decay")
+#                 # add new milestone role if needed
+#                 if new_lvl in MILESTONE_ROLES:
+#                     new_role = discord.utils.get(
+#                         guild.roles, name=ROLE_NAMES[new_lvl]
+#                     )
+#                     if new_role and new_role not in member.roles:
+#                         await member.add_roles(new_role, reason="Daily level decay")
 
-                # add new milestone role if needed
-                if new_lvl in MILESTONE_ROLES:
-                    new_role = discord.utils.get(
-                        guild.roles, name=ROLE_NAMES[new_lvl]
-                    )
-                    if new_role and new_role not in member.roles:
-                        await member.add_roles(new_role, reason="Daily level decay")
-
-        # loop back around for the next midnight
+#         # loop back around for the next midnight
 
 
 async def give_fish_food_task():
     await bot.wait_until_ready()
     while not bot.is_closed():
         async with db_pool.acquire() as conn:
-            # Step 1: Get all users with fish
+            # 0) Keep only fish from the last 24h (global is fine)
             await conn.execute("""
                 DELETE FROM aquarium
                 WHERE time_caught < NOW() - INTERVAL '1 day'
             """)
+
+            # 1) Pull at most 30 most-recent fish PER (guild, user)
             rows = await conn.fetch("""
-                SELECT user_id, color1, color2, type
+                SELECT guild_id, user_id, color1, color2, type
                 FROM (
-                    SELECT *, ROW_NUMBER() OVER (
-                        PARTITION BY user_id ORDER BY time_caught DESC
-                    ) as rn
+                    SELECT *,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY user_id, guild_id
+                               ORDER BY time_caught DESC
+                           ) AS rn
                     FROM aquarium
                 ) AS ranked
                 WHERE rn <= 30
             """)
 
-            # Step 2: Group by user
-            user_fish = defaultdict(list)
+            # 2) Group fish by (guild_id, user_id)
+            from collections import defaultdict
+            fish_by_guild_user = defaultdict(list)
             for r in rows:
-                user_fish[r["user_id"]].append((r["color1"], r["color2"], r["type"]))
+                key = (r["guild_id"], r["user_id"])
+                fish_by_guild_user[key].append((r["color1"], r["color2"], r["type"]))
 
-            # Step 3: For each user, compute unique count and update player_items
-            for user_id, fish_list in user_fish.items():
-                color1s = set(f[0] for f in fish_list)
-                color2s = set(f[1] for f in fish_list)
-                types   = set(f[2] for f in fish_list)
+            # 3) For each (guild, user), compute uniqueness and upsert fish food
+            for (guild_id, user_id), fish_list in fish_by_guild_user.items():
+                color1s = {f[0] for f in fish_list}
+                color2s = {f[1] for f in fish_list}
+                types   = {f[2] for f in fish_list}
                 total_unique = len(color1s) + len(color2s) + len(types)
 
-                # Update fish food
+                # Upsert into player_items with guild_id in both columns and conflict target
                 await conn.execute("""
-                    INSERT INTO player_items (player_id, item_name, category, quantity, useable)
-                    VALUES ($1, 'fish food', 'resource', $2, TRUE)
-                    ON CONFLICT (player_id, item_name)
-                    DO UPDATE SET quantity = player_items.quantity + $2
-                """, user_id, total_unique)
+                    INSERT INTO player_items (guild_id, player_id, item_name, category, quantity, useable)
+                    VALUES ($1, $2, 'fish food', 'resource', $3, TRUE)
+                    ON CONFLICT (guild_id, player_id, item_name)
+                    DO UPDATE SET quantity = player_items.quantity + EXCLUDED.quantity
+                """, guild_id, user_id, total_unique)
 
         print("✅ Fish food distributed.")
-        await asyncio.sleep(1800)  # Wait 30 minutes
-
+        await asyncio.sleep(1800)  # 30 minutes
 
 async def init_db():
     """Create a connection pool """
@@ -211,11 +188,8 @@ async def handle_ping(request):
 @bot.event
 async def on_ready():
     logging.info(f"Bot ready as {bot.user}")
-    if not hasattr(bot, "_decay_task"):
-        bot._decay_task = bot.loop.create_task(daily_level_decay())
-    # Only schedule it once
-    if not hasattr(bot, "_channel_exp_task"):
-        bot._channel_exp_task = bot.loop.create_task(hourly_channel_exp_flush())
+    # if not hasattr(bot, "_decay_task"):
+    #     bot._decay_task = bot.loop.create_task(daily_level_decay())
     if not hasattr(bot, "_spawn_task"):
         bot._spawn_task = bot.loop.create_task(spawn_mob_loop())
     if not hasattr(bot, "_fishfood_task"):
@@ -240,6 +214,7 @@ async def on_command_error(ctx, error):
 async def on_message(message):
     if message.author.bot:
         return
+    guild_id = message.guild.id
     # auto–eye-roll on every message from that specific user
     if message.channel.id in REACT_CHANNELS:
         if message.author.id == 1381277906017189898:
@@ -274,18 +249,17 @@ async def on_message(message):
     async with db_pool.acquire() as conn:
         await conn.execute(
             """
-            INSERT INTO accountinfo (discord_id)
-            VALUES ($1)
-            ON CONFLICT (discord_id) DO NOTHING;
+            INSERT INTO accountinfo (discord_id,guild_id)
+            VALUES ($1,$2)
+            ON CONFLICT (discord_id,guild_id) DO NOTHING;
             """,
-            message.author.id
+            message.author.id,guild_id
         )
         user_id = message.author.id
         bucket = chat_xp_cd.get_bucket(message)
         can_gain = bucket.update_rate_limit() is None
         if can_gain:
             await u.gain_exp(conn,bot,user_id,1,message)
-        
     # 0) Try to capture any active spawn in this channel
     name = message.content.strip().lower().replace(" ", "")
     now = datetime.utcnow()
@@ -310,7 +284,7 @@ async def on_message(message):
             sac = False
             # 1) Add to the barn (or sacrifice if full)
             #    First ensure the player/barn rows exist:
-            await u.ensure_player(conn,message.author.id)
+            await u.ensure_player(conn,message.author.id,guild_id)
             await conn.execute(
                 "INSERT INTO barn_upgrades (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
                 message.author.id
@@ -361,7 +335,7 @@ async def on_message(message):
             if not sac:
                 # build and send the embed
                 embed = discord.Embed(
-                    title=f"🏆 {message.author.display_name} caught a {'✨ Golden ' if is_golden else ''} {RARITIES[rarity]["name"]} {mob_name}!",
+                    title=f"🏆 {message.author.display_name} caught a {'✨ Golden ' if is_golden else ''} {RARITIES[rarity]['name']} {mob_name}!",
                     description=f"{note}",
                     color=color
                 )
