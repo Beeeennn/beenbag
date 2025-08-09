@@ -838,7 +838,7 @@ async def c_givemob(ctx, who, mob_name: str, count: int = 1):
             "SELECT COALESCE(SUM(count), 0) FROM barn WHERE user_id = $1",
             member.id
         )
-        if MOBS[mob_name]["hostile"]:
+        if MOBS[mob_name.title()]["hostile"]:
             await sucsac(ctx,member,mob_name,False,"Because it cannot be captured",conn)
             return await ctx.send(f"✅ Sacrificed {mob_name} because it is hostile")
 
@@ -853,9 +853,9 @@ async def c_givemob(ctx, who, mob_name: str, count: int = 1):
                 member.id, mob_name, False, count
             )
     
-            return await ctx.send(f"✅ Gave {count}× `{mob_name}` to {member.mention}.")
+            return await ctx.send(f"✅ Gave {count} × `{mob_name}` to {member.mention}.")
         else:
-            return await ctx.send(f"✅ Could not give {count}× `{mob_name}` to {member.mention}.")
+            return await ctx.send(f"✅ Could not give {count} × `{mob_name}` to {member.mention}, theres not enough space")
 
 async def c_sac(ctx, mob_name: str):
     """
