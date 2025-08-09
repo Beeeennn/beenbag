@@ -691,21 +691,30 @@ async def spawn_mob_loop():
                 # fallback to text if image missing
                 await chan.send(f"A wild **{mob}** appeared! (no image found)")
             pix = (random.randint(1, 4) == 1)
-            alpha = src.split()[-1]           # get the alpha channel
-            bbox  = alpha.getbbox()           # returns (left, top, right, bottom) of non-zero pixels
+            alpha = src.split()[-1]              # alpha channel
+            bbox  = alpha.getbbox()              # (left, top, right, bottom)
 
             if bbox:
                 left, top, right, bottom = bbox
-                # now pick a random center within that box (in pixel coords)
-                cx_px = random.randint(left, right)
-                cy_px = random.randint(top,  bottom)
-                # convert to fractions 0–1
-                w, h  = src.size
-                center = (cx_px / w, cy_px / h)
+                # Try up to N times to land on a non-transparent pixel
+                found = False
+                for _ in range(500):  # cheap & fast; 500 tries is plenty
+                    x = random.randint(left, right - 1)    # randint is inclusive; subtract 1
+                    y = random.randint(top,  bottom - 1)
+                    if alpha.getpixel((x, y)) > 0:         # non-transparent
+                        found = True
+                        break
+                if not found:
+                    # Fallback to bbox center if (extremely unlikely) we didn't hit opaque
+                    x = (left + right) // 2
+                    y = (top + bottom) // 2
+
+                w, h = src.size
+                center = (x / w, y / h)
             else:
-                # fallback to true random if no alpha info
                 logging.info("No bbox found")
                 center = (random.uniform(0.1, 0.9), random.uniform(0.1, 0.9))
+
             # send initial 1×1 pixel frame
             frame_sizes = [1, 2, 4, 8, 16, src.size[0]]  # final = full res width
             zoom_levels = [0.01, 0.05, 0.1, 0.2, 0.4, 1.0]
