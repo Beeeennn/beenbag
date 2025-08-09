@@ -41,11 +41,15 @@ if not DATABASE_URL:
 
 intents = discord.Intents.default()
 intents.message_content = True
-def prefix_callable(bot, message):
-    return ["!", "! "]
+
+def flexible_prefix(bot, message):
+    # Always allow "!" as the prefix, ignoring spaces after it
+    if message.content.startswith("!"):
+        return "!"
+    return commands.when_mentioned(bot, message)  # still allow @BotName commands
 
 bot = commands.Bot(
-    command_prefix=prefix_callable,
+    command_prefix=flexible_prefix,
     case_insensitive=True,
     intents=intents
 )
