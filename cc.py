@@ -826,19 +826,36 @@ async def c_givemob(ctx, who, mob_name: str, count: int = 1):
     # Validate count
     if count <= 0:
         return await ctx.send("❌ Count must be greater than 0.")
-
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO barn (user_id, mob_name, count)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (user_id, mob_name) DO UPDATE
-              SET count = barn.count + $3
-            """,
-            member.id, mob_name.title(), count
-        )
     
-    await ctx.send(f"✅ Gave {count}× `{mob_name}` to {member.mention}.")
+    async with db_pool.acquire() as conn:
+        # 2) Fetch target’s barn capacity and current fill
+        row = await conn.fetchrow(
+            "SELECT barn_size FROM new_players WHERE user_id = $1",
+            member.id
+        )
+        target_size = row["barn_size"] if row else 5
+        total_in_barn = await conn.fetchval(
+            "SELECT COALESCE(SUM(count), 0) FROM barn WHERE user_id = $1",
+            member.id
+        )
+        if MOBS[mob_name]["hostile"]:
+            await sucsac(ctx,member,mob_name,False,"Because it cannot be captured",conn)
+            return await ctx.send(f"✅ Sacrificed {mob_name} because it is hostile")
+
+        if total_in_barn+count <= target_size:
+            await conn.execute(
+                """
+                INSERT INTO barn (user_id, mob_name, is_golden, count)
+                VALUES ($1, $2, $3, 1)
+                ON CONFLICT (user_id, mob_name, is_golden) DO UPDATE
+                  SET count = barn.count + $4
+                """,
+                member.id, mob_name, False, count
+            )
+    
+            return await ctx.send(f"✅ Gave {count}× `{mob_name}` to {member.mention}.")
+        else:
+            return await ctx.send(f"✅ Could not give {count}× `{mob_name}` to {member.mention}.")
 
 async def c_sac(ctx, mob_name: str):
     """

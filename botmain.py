@@ -324,15 +324,15 @@ async def on_message(message):
                 "SELECT barn_size FROM new_players WHERE user_id = $1",
                 message.author.id
             )
-            if occ >= size:
-                sac = True
-                reward = await u.sucsac(message.channel,message.author,mob_name,is_golden,"because the barn was too full",conn)
-                note = f"sacrificed for {reward} emeralds (barn is full)."
                 
-            elif MOBS[mob_name]["hostile"]:
+            if MOBS[mob_name]["hostile"]:
                 sac = True
                 reward = await u.sucsac(message.channel,message.author,mob_name,is_golden,"because the mob is hostile",conn)
                 note = f"this mob is not catchable so it was sacrificed for {reward} emeralds"
+            elif occ >= size:
+                sac = True
+                reward = await u.sucsac(message.channel,message.author,mob_name,is_golden,"because the barn was too full",conn)
+                note = f"sacrificed for {reward} emeralds (barn is full)."
                 
             else:
 
