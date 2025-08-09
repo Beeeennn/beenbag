@@ -49,7 +49,7 @@ def flexible_prefix(bot, message):
     return commands.when_mentioned(bot, message)  # still allow @BotName commands
 
 bot = commands.Bot(
-    command_prefix=flexible_prefix,
+    command_prefix="!",
     case_insensitive=True,
     intents=intents
 )
@@ -373,7 +373,9 @@ async def on_message(message):
                 await message.channel.send(embed=embed)
                 # skip further processing (so they don’t also run a command)
             return
-
+        
+    if message.content.startswith("! "):
+        message.content = "!" + message.content[2:]
     await bot.process_commands(message)
 
 
