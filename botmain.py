@@ -716,14 +716,14 @@ async def spawn_mob_loop():
             expires = datetime.utcnow() + timedelta(seconds=RARITIES[MOBS[mob]["rarity"]]["stay"])  # give players 5m to catch
             async with db_pool.acquire() as conn:
                 record = await conn.fetchrow(
-                """
-                INSERT INTO active_spawns
-                (channel_id, mob_name, message_id, revealed, spawn_time, expires_at)
-                VALUES ($1,$2,$3,0,$4,$5)
-                RETURNING spawn_id
-                """,
-                chan.id, mob, msg.id, datetime.utcnow(), expires
-            )
+                    """
+                    INSERT INTO active_spawns
+                        (guild_id, channel_id, mob_name, message_id, revealed, spawn_time, expires_at)
+                    VALUES ($1,$2,$3,$4,0,$5,$6)
+                    RETURNING spawn_id
+                    """,
+                    chan.guild.id, chan.id, mob, msg.id, datetime.utcnow(), expires
+                )
             # step through each larger frame
             for lvl in levels[1:]:
                 await asyncio.sleep(15)
