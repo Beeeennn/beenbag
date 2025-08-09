@@ -731,8 +731,9 @@ async def spawn_mob_loop():
                 make_frame(lvl).save(buf, format="PNG")
                 buf.seek(0)
                 await msg.edit(
-                    content=f"A mob is appearing, say its name to catch it",
-                    attachments=[discord.File(buf, "spawn.png")])
+                    content="A mob is appearing, say its name to catch it!",
+                    file=discord.File(buf, "spawn.png")
+                )
             spawn_id = record["spawn_id"]
             bot.loop.create_task(
                 watch_spawn_expiry(spawn_id=spawn_id,  # you'll fetch this below
