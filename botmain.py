@@ -286,17 +286,17 @@ async def on_message(message):
             #    First ensure the player/barn rows exist:
             await u.ensure_player(conn,message.author.id,guild_id)
             await conn.execute(
-                "INSERT INTO barn_upgrades (user_id) VALUES ($1) ON CONFLICT DO NOTHING;",
-                message.author.id
+                "INSERT INTO barn_upgrades (user_id,guild_id) VALUES ($1,$2) ON CONFLICT DO NOTHING;",
+                message.author.id,guild_id
             )
             # count current barn occupancy
             occ = await conn.fetchval(
-                "SELECT COALESCE(SUM(count),0) FROM barn WHERE user_id = $1",
-                message.author.id
+                "SELECT COALESCE(SUM(count),0) FROM barn WHERE user_id = $1 AND guild_id = $2",
+                message.author.id,guild_id
             )
             size = await conn.fetchval(
-                "SELECT barn_size FROM new_players WHERE user_id = $1",
-                message.author.id
+                "SELECT barn_size FROM new_players WHERE user_id = $1 AND guild_id = $2",
+                message.author.id,guild_id
             )
                 
             if MOBS[mob_name]["hostile"]:
@@ -725,14 +725,15 @@ async def spawn_mob_loop():
                     chan.guild.id, chan.id, mob, msg.id, datetime.utcnow(), expires
                 )
             # step through each larger frame
+            logging.info("HERE")
             for lvl in levels[1:]:
                 await asyncio.sleep(15)
                 buf = io.BytesIO()
                 make_frame(lvl).save(buf, format="PNG")
                 buf.seek(0)
                 await msg.edit(
-                    content="A mob is appearing, say its name to catch it!",
-                    file=discord.File(buf, "spawn.png")
+                    content=f"A mob is appearing, say its name to catch it",
+                    attachments=[discord.File(buf, "spawn.png")]
                 )
             spawn_id = record["spawn_id"]
             bot.loop.create_task(
