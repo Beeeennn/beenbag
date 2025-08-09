@@ -675,6 +675,8 @@ async def spawn_mob_loop():
             # pick channel & mob
             chan = bot.get_channel(random.choice(SPAWN_CHANNEL_IDS))
             mob = random.choices(mob_names, weights=weights, k=1)[0]
+            if mob == "Sea Pickle":
+                mob = "Cod"
             mob_path = f"assets/mobs/{mob}"
             try:
                 if os.path.isdir(mob_path):
