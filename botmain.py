@@ -39,16 +39,17 @@ if not DATABASE_URL:
 
 # Bot setup
 
-def prefix_callable(bot, message):
-    # Accept "!cmd", "! cmd", or " !cmd" etc.
-    content = message.content
-    if content.startswith("!"):
-        return ["!", "! "]
-    return ["!"]
-
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix=prefix_callable, case_insensitive=True, intents=intents)
+def prefix_callable(bot, message):
+    return ["!", "! "]
+
+bot = commands.Bot(
+    command_prefix=prefix_callable,
+    case_insensitive=True,
+    intents=intents
+)
+
 
 #hold an asyncpg pool here
 db_pool: asyncpg.Pool = None
