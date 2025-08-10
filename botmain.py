@@ -587,6 +587,14 @@ async def setprefix(ctx, *, new_prefix: str | None = None):
 
     await ctx.send(f"✅ Prefix updated to **`{prefix}`**. You can now use `{prefix}help`.")
 
+@bot.command(name="spawnnow")
+@commands.has_permissions(administrator=True)
+async def spawnnow(ctx):
+    try:
+        await spawn_once_in_channel(ctx.channel)
+    except Exception as e:
+        logging.exception("[spawns] spawnnow failed")
+        await ctx.send(f"❌ spawn failed: `{type(e).__name__}: {e}`")
 #################################################################  CHECKS  #####################################################################################################
 
 @bot.check
@@ -638,7 +646,7 @@ async def on_guild_remove(guild):
 async def showprefix(ctx):
     gid = ctx.guild.id if ctx.guild else None
     await ctx.send(f"configured: `{_prefix_cache.get(gid, DEFAULT_PREFIX)}`, used: `{ctx.clean_prefix}`")
-    
+
 @bot.command(name="linkyt")
 async def linkyt(ctx, *, channel_name: str):
     await cc.c_linkyt(ctx,channel_name)
@@ -1043,32 +1051,32 @@ async def spawn_once_in_channel(chan):
     )
 
 async def spawn_loop_for_guild(guild_id: int):
-    """Runs forever: every 60–120s spawn in a random configured channel of this guild."""
     await bot.wait_until_ready()
     while True:
         try:
-            await asyncio.sleep(random.randint(60, 120))
-
             channels = await get_spawn_channels_for_guild(guild_id)
             if not channels:
-                # Nothing configured or no permissions; skip this tick
-                continue
+                logging.info(f"[spawns] guild {guild_id}: no valid spawn channels")
+            else:
+                chan = random.choice(channels)
+                logging.info(f"[spawns] guild {guild_id}: spawning in #{chan} ({chan.id})")
+                await spawn_once_in_channel(chan)
 
-            chan = random.choice(channels)
-            await spawn_once_in_channel(chan)
+            # sleep AFTER the attempt
+            await asyncio.sleep(random.randint(60, 120))
 
         except asyncio.CancelledError:
-            # graceful shutdown for this guild's loop
             break
         except Exception:
-            logging.exception(f"spawn_loop_for_guild({guild_id}) error; skipping this tick")
-            # short backoff so a broken image doesn't tight-loop
+            logging.exception(f"[spawns] loop error for guild {guild_id}; backing off 10s")
             await asyncio.sleep(10)
 
+
 def start_guild_spawn_task(guild_id: int):
-    # Restart if running
     stop_guild_spawn_task(guild_id)
-    bot._guild_spawn_tasks[guild_id] = bot.loop.create_task(spawn_loop_for_guild(guild_id))
+    logging.info(f"[spawns] starting loop for guild {guild_id}")
+    bot._guild_spawn_tasks[guild_id] = asyncio.create_task(spawn_loop_for_guild(guild_id))
+
 
 def stop_guild_spawn_task(guild_id: int):
     t = bot._guild_spawn_tasks.pop(guild_id, None)
