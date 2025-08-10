@@ -380,9 +380,8 @@ async def handle_get_image(request):
 
 
 ########################################### ADMIN #########################################################################
-if bot.get_command("setup"):
-    bot.remove_command("setup")
-@bot.command(name="setup")
+
+@bot.command(name="setupbot")
 @commands.has_permissions(administrator=True)
 async def setup(ctx):
     guild_id = ctx.guild.id
@@ -560,7 +559,7 @@ async def craft_error(ctx, error):
 @bot.command(name="recipe")
 async def recipe(ctx, *args):
     await cc.c_craft(ctx, args)
-@recipe.error
+@craft.error
 async def craft_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
         return await ctx.send("❌ Usage: `!recipe <tool> [tier]`")
