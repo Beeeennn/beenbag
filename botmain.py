@@ -9,10 +9,9 @@ from aiohttp import web
 from PIL import Image
 import io
 import uuid
-
 from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
-from collections import defaultdict
+from collections import defaultdict, deque
 from constants import *
 import utils as u
 import cc
@@ -190,12 +189,12 @@ async def on_ready():
     logging.info(f"Bot ready as {bot.user}")
     # if not hasattr(bot, "_decay_task"):
     #     bot._decay_task = bot.loop.create_task(daily_level_decay())
-    if not hasattr(bot, "_spawn_task"):
-        bot._spawn_task = bot.loop.create_task(spawn_mob_loop())
+    if not hasattr(bot, "_guild_spawn_tasks"):
+        bot._guild_spawn_tasks = {}
+    # Start/ensure per‑guild spawners
+    start_all_guild_spawn_tasks()
     if not hasattr(bot, "_fishfood_task"):
         bot._fishfood_task = bot.loop.create_task(give_fish_food_task())
-
-#    <beenncode>
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -389,53 +388,134 @@ async def setup(ctx):
     def check(m):
         return m.author == ctx.author and m.channel == ctx.channel
 
+    def parse_channel_list(msg):
+        return [c.id for c in msg.channel_mentions]
+
     async with db_pool.acquire() as conn:
-        # Announce channel
-        await ctx.send("Mention the channel for announcements such as welcomes and level up messages (e.g., `#announcements`):")
+        # Spawn channels (existing flow)
+        await ctx.send(
+            "**1/6** Mention the **channels for mob spawns** (space/comma separated), or type `none` to skip:"
+        )
         msg = await bot.wait_for("message", check=check)
-        announce_channel = msg.channel_mentions[0] if msg.channel_mentions else None
-        if not announce_channel:
-            return await ctx.send("❌ No channel mentioned. Setup aborted.")
-        
-        # Step 2: Spawn channel
-        await ctx.send("Mention the channels for mob spawns, seperated by commas:")
+        spawn_channels = parse_channel_list(msg) if msg.content.lower().strip() != "none" else []
+
+        # Announce channel (single)
+        await ctx.send("**2/6** Mention the **announce channel** where leveling announcements are made along with welcomes, or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
-        spawn_channel = msg.channel_mentions[0] if msg.channel_mentions else None
-        if not spawn_channel:
-            return await ctx.send("❌ No channel mentioned. Setup aborted.")
-        
-        # React channels
-        await ctx.send("Mention any channels where reactions should be added (comma-separated), or type `none`:")
+        announce_channel_id = msg.channel_mentions[0].id if (msg.content.lower().strip() != "none" and msg.channel_mentions) else None
+
+        # Link channels (array)
+        await ctx.send("**3/6** Mention the **link channels** (space/comma separated) where the bot can send links, or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
-        if msg.content.lower() != "none":
-            react_channels = [c.id for c in msg.channel_mentions]
-        else:
-            react_channels = []
+        link_channel_ids = parse_channel_list(msg) if msg.content.lower().strip() != "none" else []
 
-        # Log channel
-        await ctx.send("Mention the channel for logs:")
+        # React channels (array)
+        await ctx.send("**4/6** Mention the **react channels** (space/comma separated) where the bot can react to messages, or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
-        log_channel = msg.channel_mentions[0] if msg.channel_mentions else None
-        if not log_channel:
-            await ctx.send("❌ No log channel mentioned. Use `setlogs #logchanel` to set it in the future.")
+        react_channel_ids = parse_channel_list(msg) if msg.content.lower().strip() != "none" else []
 
-        # Save to DB
-        await conn.execute("""
-            INSERT INTO guild_settings (guild_id, announce_channel_id, react_channel_ids, log_channel_id)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (guild_id)
-            DO UPDATE SET announce_channel_id = EXCLUDED.announce_channel_id,
-                          react_channel_ids = EXCLUDED.react_channel_ids,
-                          log_channel_id = EXCLUDED.log_channel_id
-        """, guild_id, announce_channel.id, react_channels, log_channel.id)
+        # Game channels (array)  ⬅️ NEW
+        await ctx.send("**5/6** Mention the **game channels** (space/comma separated) where game commands are allowed, or type `none` to allow them anywhere:")
+        msg = await bot.wait_for("message", check=check)
+        game_channel_ids = parse_channel_list(msg) if msg.content.lower().strip() != "none" else []
 
-    await ctx.send("✅ Setup complete for this server!")
+        # Log channel (single)
+        await ctx.send("**6/6** Mention the **log channel** where any admin logs are sent, or type `none` to skip:")
+        msg = await bot.wait_for("message", check=check)
+        log_channel_id = msg.channel_mentions[0].id if (msg.content.lower().strip() != "none" and msg.channel_mentions) else None
 
-@bot.command(name="setup")
-@commands.has_permissions(administrator=True)
-#############################################################################################################################################################################
+        # Upsert guild_settings
+        await conn.execute(
+            """
+            INSERT INTO guild_settings (
+                guild_id,
+                announce_channel_id,
+                link_channel_ids,
+                react_channel_ids,
+                game_channel_ids,
+                log_channel_id
+            ) VALUES ($1, $2, $3::bigint[], $4::bigint[], $5::bigint[], $6)
+            ON CONFLICT (guild_id) DO UPDATE
+            SET announce_channel_id = EXCLUDED.announce_channel_id,
+                link_channel_ids    = EXCLUDED.link_channel_ids,
+                react_channel_ids   = EXCLUDED.react_channel_ids,
+                game_channel_ids    = EXCLUDED.game_channel_ids,
+                log_channel_id      = EXCLUDED.log_channel_id
+            """,
+            guild_id,
+            announce_channel_id,
+            link_channel_ids,
+            react_channel_ids,
+            game_channel_ids,
+            log_channel_id,
+        )
+
+        # Replace spawn channels
+        await conn.execute("DELETE FROM guild_spawn_channels WHERE guild_id = $1", guild_id)
+        for ch_id in spawn_channels:
+            await conn.execute(
+                "INSERT INTO guild_spawn_channels (guild_id, channel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                guild_id, ch_id
+            )
+
+    await ctx.send(
+        "✅ Setup complete!\n"
+        "• spawn channels saved\n"
+        "• announce channel saved\n"
+        "• link channels saved\n"
+        "• react channels saved\n"
+        "• game channels saved\n"
+        "• log channel saved"
+    )
+    start_guild_spawn_task(guild_id)
 
 
+#################################################################  CHECKS  #####################################################################################################
+
+@bot.check
+async def only_in_game_channels(ctx: commands.Context):
+    # DM or system messages -> allow
+    if ctx.guild is None:
+        return True
+
+    # Only gate commands marked as game_command
+    is_game = getattr(ctx.command.callback, "is_game_command", False)
+    if not is_game:
+        return True
+
+    # Optional: let admins bypass
+    if ctx.author.guild_permissions.administrator:
+        return True
+
+    async with db_pool.acquire() as conn:
+        ids = await conn.fetchval(
+            "SELECT game_channel_ids FROM guild_settings WHERE guild_id=$1",
+            ctx.guild.id
+        )
+
+    # If not configured or empty -> allow everywhere
+    if not ids:
+        return True
+
+    if ctx.channel.id in ids:
+        return True
+
+    try:
+        await ctx.send("❌ Use game commands in the designated game channels.")
+    except Exception:
+        pass
+    return False
+
+############################################################## EVENTS #############################################################
+@bot.event
+async def on_guild_join(guild):
+    start_guild_spawn_task(guild.id)
+
+@bot.event
+async def on_guild_remove(guild):
+    stop_guild_spawn_task(guild.id)
+
+############################################################## USER COMMANDS ################################################################
 @bot.command(name="linkyt")
 async def linkyt(ctx, *, channel_name: str):
     await cc.c_linkyt(ctx,channel_name)
@@ -444,8 +524,16 @@ async def linkyt(ctx, *, channel_name: str):
 async def yt(ctx, *, who = None):
     await cc.c_yt(ctx, who)
 
+# --- helpers to mark game commands ---
+def game_command():
+    def deco(cmd_func):
+        # Use Command.extras to tag it
+        setattr(cmd_func, "is_game_command", True)
+        return cmd_func
+    return deco
 
 
+@game_command()
 @bot.command(name="give")
 async def give(ctx, who: str, *, mob: str):
     await cc.c_give(ctx, who, mob)
@@ -456,7 +544,7 @@ async def give_error(ctx, error):
     raise error
 
 
-
+@game_command()
 @bot.command(name="craft")
 async def craft(ctx, *args):
     await cc.c_craft(ctx, args)
@@ -466,6 +554,7 @@ async def craft_error(ctx, error):
         return await ctx.send("❌ Usage: `!craft <tool> [tier]`")
     raise error
 
+@game_command()
 @bot.command(name="recipe")
 async def recipe(ctx, *args):
     await cc.c_craft(ctx, args)
@@ -475,11 +564,13 @@ async def craft_error(ctx, error):
         return await ctx.send("❌ Usage: `!recipe <tool> [tier]`")
     raise error
 
+@game_command()
 @bot.command(name="shop")
 async def shop(ctx):
     await cc.c_shop(ctx)
 
 
+@game_command()
 @bot.command(name="breed")
 @commands.cooldown(5, 86400, commands.BucketType.user)  # 5 uses per day
 async def breed(ctx, *, mob: str):
@@ -505,6 +596,7 @@ async def updates(ctx):
     await u.giverole(ctx,role_id,ctx.author)
 
 
+@game_command()
 @bot.command(name="buy")
 async def buy(ctx, *args):
     await cc.c_buy(ctx,args)
@@ -519,19 +611,24 @@ async def exp_cmd(ctx, *, who: str = None):
 async def leaderboard(ctx):
     await cc.c_leaderboard(ctx,bot)
 
+
 @bot.command(name="givemob")
 @commands.has_permissions(manage_guild=True)
 async def givemob(ctx, who: str , mob_name: str, count: int = 1):
     await cc.c_givemob(ctx,who,mob_name,count)
 
+@game_command()
 @bot.command(name="sacrifice", aliases=["sac", "kill"])
 async def sacrifice(ctx, *, mob_name: str):
     await cc.c_sac(ctx,mob_name)
 
+@game_command()
 @bot.command(name="bestiary",aliases =["bs","bes"])
 async def bestiary(ctx, *, who: str = None):
     await cc.c_bestiary(ctx,who)
 
+
+@game_command()
 @bot.command(name="chop")
 @commands.cooldown(1, 60, commands.BucketType.user)  # 1 use per 60s per user
 async def chop(ctx):
@@ -549,6 +646,7 @@ async def chop_error(ctx, error):
     raise error
 
 
+@game_command()
 @bot.command(name="stronghold")
 async def stronghold(ctx):
     await ctx.send(f"This feature is currently under development, please try again later (after 12th Aug).:fosh:")
@@ -567,7 +665,7 @@ async def mine_error(ctx, error):
     raise error
 
 
-
+@game_command()
 @bot.command(name="farm")
 @commands.cooldown(1, 120, commands.BucketType.user)
 async def farm(ctx):
@@ -580,19 +678,22 @@ async def farm_error(ctx, error):
         return
     raise error
 
-
+@game_command()
 @bot.command(name="inv", aliases=["inventory"])
 async def inv(ctx, *, who: str = None):
     await cc.c_inv(ctx,who)
 
+@game_command()
 @bot.command(name="barn")
 async def barn(ctx, *, who: str = None):
     await cc.c_barn(ctx, who)
-    
+
+@game_command()
 @bot.command(name="upbarn")
 async def upbarn(ctx):
     await cc.c_upbarn(ctx)
 
+@game_command()
 @bot.command(name="use")
 async def use(ctx, *, args:str):
     try:
@@ -603,7 +704,9 @@ async def use(ctx, *, args:str):
     except ValueError:
         return await ctx.send("❌ Use it like `!use item_name quantity` (e.g. `!use fish food 100`).")
 
+
 @commands.cooldown(1, 90, commands.BucketType.user)
+@game_command()
 @bot.command(name="fish")
 async def fish(ctx):
     await cc.make_fish(ctx, "assets/fish/")
@@ -619,6 +722,7 @@ async def fish_error(ctx, error):
     raise error
 
 
+@game_command()
 @bot.command(name="aquarium", aliases=["aq"])
 async def aquarium(ctx, *, who: str = None):
     await cc.c_generate_aquarium(ctx,who)
@@ -684,120 +788,176 @@ async def watch_spawn_expiry(spawn_id, channel_id, message_id, mob_name, expires
         # Announce the escape
         await channel.send(f"**{mob_name}** escaped, maybe next time")
 
-async def spawn_mob_loop():
-    await bot.wait_until_ready()
-        # before your loop, compute these once:
-    mob_names = list(MOBS.keys())
-    rarities = [MOBS[name]["rarity"] for name in mob_names]
-    max_r = max(rarities)
 
-    # weight = (max_r + 1) – rarity  → commons get highest weight
-    weights = [(2**(max_r + 1-r)) for r in rarities]
+# store per-guild tasks here
+if not hasattr(bot, "_guild_spawn_tasks"):
+    bot._guild_spawn_tasks = {}
+
+async def get_spawn_channels_for_guild(guild_id: int):
+    """Return a list of channels in this guild where we can spawn."""
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT channel_id FROM guild_spawn_channels WHERE guild_id = $1",
+            guild_id
+        )
+    chans = []
+    for r in rows:
+        ch = bot.get_channel(r["channel_id"])
+        if not ch:
+            continue
+        if not isinstance(ch, (discord.TextChannel, discord.Thread)):
+            continue
+        me = ch.guild.me
+        if not me:
+            continue
+        perms = ch.permissions_for(me)
+        if perms.view_channel and perms.send_messages:
+            chans.append(ch)
+    return chans
+
+async def spawn_once_in_channel(chan: discord.abc.MessageableChannel):
+    # ---- your existing spawn body (trimmed): choose mob, load image, animate, insert into DB, schedule expiry ----
+    mob_names = list(MOBS.keys())
+    rarities  = [MOBS[name]["rarity"] for name in mob_names]
+    max_r     = max(rarities)
+    weights   = [(2 ** (max_r + 1 - r)) for r in rarities]
+
+    mob = random.choices(mob_names, weights=weights, k=1)[0]
+    if mob == "Sea Pickle":
+        mob = "Cod"
+
+    mob_path = f"assets/mobs/{mob}"
+    try:
+        if os.path.isdir(mob_path):
+            imgs = [f for f in os.listdir(mob_path) if f.lower().endswith((".png", ".jpg", ".jpeg"))]
+            if not imgs:
+                raise FileNotFoundError("No image files in directory")
+            src = Image.open(os.path.join(mob_path, random.choice(imgs))).convert("RGBA")
+        else:
+            src = Image.open(f"{mob_path}.png").convert("RGBA")
+    except FileNotFoundError:
+        await chan.send(f"A wild **{mob}** appeared! (no image found)")
+        return
+
+    alpha = src.split()[-1]
+    bbox  = alpha.getbbox()
+    if bbox:
+        left, top, right, bottom = bbox
+        found = False
+        for _ in range(500):
+            x = random.randint(left, right - 1)
+            y = random.randint(top,  bottom - 1)
+            if alpha.getpixel((x, y)) > 0:
+                found = True
+                break
+        if not found:
+            x = (left + right) // 2
+            y = (top + bottom) // 2
+        w, h = src.size
+        center = (x / w, y / h)
+    else:
+        center = (random.uniform(0.1, 0.9), random.uniform(0.1, 0.9))
+
+    def pixelate(img: Image.Image, size: int) -> Image.Image:
+        small = img.resize((size, size), resample=Image.NEAREST)
+        return small.resize(img.size, Image.NEAREST)
+
+    def zoom_frame_at(src: Image.Image, zoom_frac: float, center_xy: tuple[float, float]) -> Image.Image:
+        w, h = src.size
+        f  = max(0.01, min(zoom_frac, 1.0))
+        cw = int(w * f); ch = int(h * f)
+        cx, cy = center_xy
+        left = int(cx * w - cw / 2)
+        top  = int(cy * h - ch / 2)
+        left = max(0, min(left, w - cw))
+        top  = max(0, min(top,  h - ch))
+        crop = src.crop((left, top, left + cw, top + ch))
+        return crop.resize((w, h), Image.NEAREST)
+
+    pix = (random.randint(1, 4) == 1)
+    frame_sizes = [1, 2, 4, 8, 16, src.size[0]]
+    zoom_levels = [0.01, 0.05, 0.1, 0.2, 0.4, 1.0]
+    levels     = frame_sizes if pix else zoom_levels
+    make_frame = (lambda lvl: pixelate(src, lvl)) if pix else (lambda lvl: zoom_frame_at(src, lvl, center))
+
+    buf = io.BytesIO()
+    make_frame(levels[0]).save(buf, format="PNG")
+    buf.seek(0)
+    msg = await chan.send("A mob is appearing, say its name to catch it", file=discord.File(buf, "spawn.png"))
+
+    stay_seconds = RARITIES[MOBS[mob]["rarity"]]["stay"]
+    expires = datetime.utcnow() + timedelta(seconds=stay_seconds)
+
+    async with db_pool.acquire() as conn:
+        rec = await conn.fetchrow(
+            """
+            INSERT INTO active_spawns
+                (guild_id, channel_id, mob_name, message_id, revealed, spawn_time, expires_at)
+            VALUES ($1,$2,$3,$4,0,$5,$6)
+            RETURNING spawn_id
+            """,
+            chan.guild.id, chan.id, mob, msg.id, datetime.utcnow(), expires
+        )
+
+    for lvl in levels[1:]:
+        await asyncio.sleep(15)
+        buf = io.BytesIO()
+        make_frame(lvl).save(buf, format="PNG")
+        buf.seek(0)
+        await msg.edit(
+            content="A mob is appearing, say its name to catch it",
+            attachments=[discord.File(buf, "spawn.png")]
+        )
+
+    bot.loop.create_task(
+        watch_spawn_expiry(
+            spawn_id=rec["spawn_id"],
+            channel_id=chan.id,
+            message_id=msg.id,
+            mob_name=mob,
+            expires_at=expires
+        )
+    )
+
+async def spawn_loop_for_guild(guild_id: int):
+    """Runs forever: every 60–120s spawn in a random configured channel of this guild."""
+    await bot.wait_until_ready()
     while True:
         try:
-            # wait 4–20 minutes
-            await asyncio.sleep(random.randint(2*60, 5*60))
+            await asyncio.sleep(random.randint(60, 120))
 
-            # pick channel & mob
-            chan = bot.get_channel(random.choice(SPAWN_CHANNEL_IDS))
-            mob = random.choices(mob_names, weights=weights, k=1)[0]
-            if mob == "Sea Pickle":
-                mob = "Cod"
-            mob_path = f"assets/mobs/{mob}"
-            try:
-                if os.path.isdir(mob_path):
-                    # It's a folder — pick a random image file inside
-                    image_files = [f for f in os.listdir(mob_path) if f.lower().endswith((".png", ".jpg", ".jpeg"))]
-                    if not image_files:
-                        raise FileNotFoundError("No image files in directory")
-                    selected_image = random.choice(image_files)
-                    src = Image.open(os.path.join(mob_path, selected_image)).convert("RGBA")
-                else:
-                    # It's a single image
-                    src = Image.open(f"{mob_path}.png").convert("RGBA")
-            except FileNotFoundError:
-                # fallback to text if image missing
-                await chan.send(f"A wild **{mob}** appeared! (no image found)")
-            pix = (random.randint(1, 4) == 1)
-            alpha = src.split()[-1]              # alpha channel
-            bbox  = alpha.getbbox()              # (left, top, right, bottom)
+            channels = await get_spawn_channels_for_guild(guild_id)
+            if not channels:
+                # Nothing configured or no permissions; skip this tick
+                continue
 
-            if bbox:
-                left, top, right, bottom = bbox
-                # Try up to N times to land on a non-transparent pixel
-                found = False
-                for _ in range(500):  # cheap & fast; 500 tries is plenty
-                    x = random.randint(left, right - 1)    # randint is inclusive; subtract 1
-                    y = random.randint(top,  bottom - 1)
-                    if alpha.getpixel((x, y)) > 0:         # non-transparent
-                        found = True
-                        break
-                if not found:
-                    # Fallback to bbox center if (extremely unlikely) we didn't hit opaque
-                    x = (left + right) // 2
-                    y = (top + bottom) // 2
+            chan = random.choice(channels)
+            await spawn_once_in_channel(chan)
 
-                w, h = src.size
-                center = (x / w, y / h)
-            else:
-                logging.info("No bbox found")
-                center = (random.uniform(0.1, 0.9), random.uniform(0.1, 0.9))
-
-            # send initial 1×1 pixel frame
-            frame_sizes = [1, 2, 4, 8, 16, src.size[0]]  # final = full res width
-            zoom_levels = [0.01, 0.05, 0.1, 0.2, 0.4, 1.0]
-
-
-            if pix:
-                levels     = frame_sizes
-                make_frame = lambda lvl: pixelate(src, lvl)
-            else:
-                levels = zoom_levels
-                # now every frame uses that same center
-                make_frame = lambda lvl: zoom_frame_at(src, lvl, center)
-
-            # send first frame
-            buf = io.BytesIO()
-            make_frame(levels[0]).save(buf, format="PNG")
-            buf.seek(0)
-            msg = await chan.send(
-                "A mob is appearing, say its name to catch it",
-                file=discord.File(buf, "spawn.png")
-            )
-           
-            expires = datetime.utcnow() + timedelta(seconds=RARITIES[MOBS[mob]["rarity"]]["stay"])  # give players 5m to catch
-            async with db_pool.acquire() as conn:
-                record = await conn.fetchrow(
-                    """
-                    INSERT INTO active_spawns
-                        (guild_id, channel_id, mob_name, message_id, revealed, spawn_time, expires_at)
-                    VALUES ($1,$2,$3,$4,0,$5,$6)
-                    RETURNING spawn_id
-                    """,
-                    chan.guild.id, chan.id, mob, msg.id, datetime.utcnow(), expires
-                )
-            # step through each larger frame
-            logging.info("HERE")
-            for lvl in levels[1:]:
-                await asyncio.sleep(15)
-                buf = io.BytesIO()
-                make_frame(lvl).save(buf, format="PNG")
-                buf.seek(0)
-                await msg.edit(
-                    content=f"A mob is appearing, say its name to catch it",
-                    attachments=[discord.File(buf, "spawn.png")]
-                )
-            spawn_id = record["spawn_id"]
-            bot.loop.create_task(
-                watch_spawn_expiry(spawn_id=spawn_id,  # you'll fetch this below
-                                channel_id=chan.id,
-                                message_id=msg.id,
-                                mob_name=mob,
-                                expires_at=expires)
-            )
-        
+        except asyncio.CancelledError:
+            # graceful shutdown for this guild's loop
+            break
         except Exception:
-            await asyncio.sleep(60)
+            logging.exception(f"spawn_loop_for_guild({guild_id}) error; skipping this tick")
+            # short backoff so a broken image doesn't tight-loop
+            await asyncio.sleep(10)
+
+def start_guild_spawn_task(guild_id: int):
+    # Restart if running
+    stop_guild_spawn_task(guild_id)
+    bot._guild_spawn_tasks[guild_id] = bot.loop.create_task(spawn_loop_for_guild(guild_id))
+
+def stop_guild_spawn_task(guild_id: int):
+    t = bot._guild_spawn_tasks.pop(guild_id, None)
+    if t and not t.done():
+        t.cancel()
+
+def start_all_guild_spawn_tasks():
+    for g in bot.guilds:
+        start_guild_spawn_task(g.id)
+
+
+
 async def start_http_server():
     app = web.Application()
     app.router.add_get("/i/{id}", handle_get_image)

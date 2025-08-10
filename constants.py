@@ -79,7 +79,7 @@ MOBS = {"Zombie":{"rarity":1,"hostile":True},
         "Happy Ghast":{"rarity":3,"hostile":True}
         }
 # IDs of channels where !yt is permitted
-LINK_CHANNELS = [1395577501916336128, 1396194783713824800]
+# LINK_CHANNELS = [1395577501916336128, 1396194783713824800]
 RARITIES ={
     1:{"colour":"white","name":"common","wheat":10,"emeralds":1,"stay":180},
     2:{"colour":"green","name":"uncommon","wheat":20,"emeralds":2,"stay":160},
@@ -94,7 +94,7 @@ WHEAT_DROP ={None: 2,
             "gold":    6,
             "diamond": 7
 }
-ANNOUNCE_CHANNEL_ID = 1396194783713824800
+# ANNOUNCE_CHANNEL_ID = 1396194783713824800
 # Define weighted drop tables per pickaxe tier
 DROP_TABLES = {
     "wood":    {"cobblestone":{"chance" :80, "min":1, "max":1}, "iron":{"chance" :15, "min":1, "max":1}, "gold": {"chance" :4, "min":1, "max":1},  "diamond": {"chance" :1, "min":1, "max":1}},
@@ -131,7 +131,7 @@ LEVEL_EXP = {
 
 # which levels should get roles
 MILESTONE_ROLES = [10,20,30,40,50]
-SPAWN_CHANNEL_IDS = [1396534538498343002, 1396534603854123088,1396534658656763974,1396534732682035250]
+# SPAWN_CHANNEL_IDS = [1396534538498343002, 1396534603854123088,1396534658656763974,1396534732682035250]
 REACT_CHANNELS = [1396534538498343002, 1396534603854123088,1396534658656763974,1396534732682035250,1396194783713824800]
 
 ROLE_NAMES = {
