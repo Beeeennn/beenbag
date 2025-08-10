@@ -244,17 +244,21 @@ async def on_message(message):
         return
     guild_id = message.guild.id
     # auto–eye-roll on every message from that specific user
-    if message.channel.id in REACT_CHANNELS:
+    # inside on_message, after you computed guild_id
+    async with db_pool.acquire() as conn:
+        react_ids = await conn.fetchval(
+            "SELECT react_channel_ids FROM guild_settings WHERE guild_id=$1",
+            guild_id
+        )
+    react_ids = react_ids or []
+
+    if message.channel.id in react_ids:
         if message.author.id == 1381277906017189898:
-            try:
-                await message.add_reaction("🙄")
-            except Exception:
-                pass  # ignore rate-limit or other errors
+            try: await message.add_reaction("🙄")
+            except Exception: pass
         elif message.author.id == 1376308591115501618:
-            try:
-                await message.add_reaction("🐈")
-            except Exception:
-                pass  # ignore rate-limit or other errors
+            try: await message.add_reaction("🐈")
+            except Exception: pass
     if message.author.bot:
         return
 
@@ -408,10 +412,71 @@ async def handle_get_image(request):
 
 ########################################### ADMIN #########################################################################
 
-# matches: <#123>, https://discord.com/channels/111/222, 222 (raw id)
+import re
+
+# Accepts: <#123>, https://discord.com/channels/GUILD/123, or 123
 _CHANNEL_TOKEN_RE = re.compile(
     r"(?:<#(?P<m>\d{15,25})>|https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/channels/\d{15,25}/(?P<u>\d{15,25})|\b(?P<i>\d{15,25})\b)"
 )
+
+def _extract_first_channel_id(text: str) -> int | None:
+    if not text:
+        return None
+    m = _CHANNEL_TOKEN_RE.search(text)
+    if not m:
+        return None
+    s = m.group("m") or m.group("u") or m.group("i")
+    try:
+        return int(s)
+    except Exception:
+        return None
+
+def _resolve_channel_from_text(ctx, text: str | None):
+    """Return a TextChannel/Thread from mention/link/id text; or None."""
+    cid = _extract_first_channel_id(text or "")
+    if not cid:
+        return None
+    ch = ctx.guild.get_channel(cid) or ctx.bot.get_channel(cid)
+    return ch
+
+def _bot_can_send(ctx, ch) -> bool:
+    me = ctx.guild.me
+    if not me:
+        return False
+    perms = ch.permissions_for(me)
+    # Threads may need send_messages_in_threads
+    return perms.view_channel and (getattr(perms, "send_messages_in_threads", False) or perms.send_messages)
+
+async def _array_add(conn, guild_id: int, column: str, value: int):
+    # safety: only allow expected columns
+    if column not in ("link_channel_ids", "game_channel_ids"):
+        raise ValueError("invalid column")
+    await conn.execute(
+        f"""
+        INSERT INTO guild_settings (guild_id, {column})
+        VALUES ($1, ARRAY[$2]::bigint[])
+        ON CONFLICT (guild_id) DO UPDATE
+        SET {column} = (
+          SELECT ARRAY(
+            SELECT DISTINCT e FROM unnest(coalesce(guild_settings.{column}, '{{}}'::bigint[]) || ARRAY[$2]::bigint[]) AS t(e)
+          )
+        )
+        """,
+        guild_id, value
+    )
+
+async def _array_remove(conn, guild_id: int, column: str, value: int):
+    if column not in ("link_channel_ids", "game_channel_ids"):
+        raise ValueError("invalid column")
+    await conn.execute(
+        f"""
+        INSERT INTO guild_settings (guild_id, {column})
+        VALUES ($1, '{{}}'::bigint[])
+        ON CONFLICT (guild_id) DO UPDATE
+        SET {column} = array_remove(coalesce(guild_settings.{column}, '{{}}'::bigint[]), $2)
+        """,
+        guild_id, value
+    )
 
 def parse_channel_ids_any(bot: commands.Bot, msg: discord.Message) -> list[int]:
     ids = set()
@@ -430,6 +495,45 @@ def parse_channel_ids_any(bot: commands.Bot, msg: discord.Message) -> list[int]:
 def parse_one_channel_id_any(bot: commands.Bot, msg: discord.Message) -> int | None:
     ids = parse_channel_ids_any(bot, msg)
     return ids[0] if ids else None
+# allow react_channel_ids in the generic array updaters
+async def _array_add(conn, guild_id: int, column: str, value: int):
+    if column not in ("link_channel_ids", "game_channel_ids", "react_channel_ids"):
+        raise ValueError("invalid column")
+    await conn.execute(
+        f"""
+        INSERT INTO guild_settings (guild_id, {column})
+        VALUES ($1, ARRAY[$2]::bigint[])
+        ON CONFLICT (guild_id) DO UPDATE
+        SET {column} = (
+          SELECT ARRAY(
+            SELECT DISTINCT e FROM unnest(coalesce(guild_settings.{column}, '{{}}'::bigint[]) || ARRAY[$2]::bigint[]) AS t(e)
+          )
+        )
+        """,
+        guild_id, value
+    )
+
+async def _array_remove(conn, guild_id: int, column: str, value: int):
+    if column not in ("link_channel_ids", "game_channel_ids", "react_channel_ids"):
+        raise ValueError("invalid column")
+    await conn.execute(
+        f"""
+        INSERT INTO guild_settings (guild_id, {column})
+        VALUES ($1, '{{}}'::bigint[])
+        ON CONFLICT (guild_id) DO UPDATE
+        SET {column} = array_remove(coalesce(guild_settings.{column}, '{{}}'::bigint[]), $2)
+        """,
+        guild_id, value
+    )
+def _bot_can_react(ctx, ch) -> bool:
+    me = ctx.guild.me
+    if not me:
+        return False
+    perms = ch.permissions_for(me)
+    # For threads, Add Reactions is still the key
+    return perms.view_channel and perms.add_reactions
+
+
 @bot.command(name="setupbot", aliases=["setup"])
 @commands.has_permissions(administrator=True)
 async def setup(ctx):
@@ -617,6 +721,304 @@ async def spawnnow(ctx):
     except Exception as e:
         logging.exception("[spawns] spawnnow failed")
         await ctx.send(f"❌ spawn failed: `{type(e).__name__}: {e}`")
+
+
+@bot.command(name="setlogs", aliases=["setlog", "logs"])
+@commands.has_permissions(administrator=True)
+async def setlogs(ctx, channel: discord.TextChannel | None = None):
+    """
+    Set the logs channel for this server.
+    Use in a channel with no args to set it to the current channel,
+    or mention a channel to target it, e.g. `#logs`.
+    """
+    if ctx.guild is None:
+        return await ctx.send("❌ This command can only be used in a server.")
+
+    target = channel or ctx.channel
+
+    # sanity: make sure it's in this guild and bot can post there
+    if target.guild.id != ctx.guild.id:
+        return await ctx.send("❌ That channel isn’t in this server.")
+    me = ctx.guild.me
+    perms = target.permissions_for(me)
+    if not (perms.view_channel and (perms.send_messages or getattr(perms, "send_messages_in_threads", False))):
+        return await ctx.send(f"❌ I don’t have permission to post in {target.mention}.")
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO guild_settings (guild_id, log_channel_id)
+            VALUES ($1, $2)
+            ON CONFLICT (guild_id) DO UPDATE
+            SET log_channel_id = EXCLUDED.log_channel_id
+            """,
+            ctx.guild.id, target.id
+        )
+
+    await ctx.send(f"✅ Log channel set to {target.mention}.")
+@setlogs.error
+async def setlogs_error(ctx, error):
+    if isinstance(error, commands.BadArgument):
+        # happens if the provided channel arg couldn't be resolved to a TextChannel
+        return await ctx.send(
+            f"❌ I couldn't find that channel. "
+            f"Use `{ctx.clean_prefix}setlogs` in the target channel, or mention it like `#logs`."
+        )
+    if isinstance(error, commands.MissingPermissions):
+        return await ctx.send("❌ You need the **Administrator** permission to do that.")
+    raise error
+
+@bot.command(name="addspawnchannel", aliases=["addspawn", "addspawnhannel"])  # last alias covers the typo just in case
+@commands.has_permissions(administrator=True)
+async def addspawnchannel(ctx, channel: discord.abc.GuildChannel | None = None):
+    if ctx.guild is None:
+        return await ctx.send("❌ This command can only be used in a server.")
+
+    target = channel or ctx.channel
+
+    # Only allow text channels or threads
+    if not isinstance(target, (discord.TextChannel, discord.Thread)):
+        return await ctx.send("❌ Please choose a text channel or a thread.")
+
+    if target.guild.id != ctx.guild.id:
+        return await ctx.send("❌ That channel isn’t in this server.")
+
+    me = ctx.guild.me
+    perms = target.permissions_for(me)
+    can_send = perms.send_messages or getattr(perms, "send_messages_in_threads", False)
+    if not (perms.view_channel and can_send):
+        return await ctx.send(f"❌ I don’t have permission to post in {target.mention}.")
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO guild_spawn_channels (guild_id, channel_id)
+            VALUES ($1, $2)
+            ON CONFLICT DO NOTHING
+            """,
+            ctx.guild.id, target.id
+        )
+
+    # refresh this guild's spawner to pick up the change
+    start_guild_spawn_task(ctx.guild.id)
+
+    await ctx.send(f"✅ Added {target.mention} as a spawn channel.")
+
+
+@addspawnchannel.error
+async def addspawnchannel_error(ctx, error):
+    if isinstance(error, commands.BadArgument):
+        return await ctx.send(
+            f"❌ I couldn't find that channel. "
+            f"Use `{ctx.clean_prefix}addspawnchannel` in the target channel, or mention it like `#spawns`."
+        )
+    if isinstance(error, commands.MissingPermissions):
+        return await ctx.send("❌ You need the **Administrator** permission to do that.")
+    raise error
+
+
+# REMOVE a spawn channel
+@bot.command(name="removespawnchannel", aliases=["removespawn", "delspawn"])
+@commands.has_permissions(administrator=True)
+async def removespawnchannel(ctx, channel: discord.abc.GuildChannel | None = None):
+    if ctx.guild is None:
+        return await ctx.send("❌ This command can only be used in a server.")
+
+    target = channel or ctx.channel
+
+    if not isinstance(target, (discord.TextChannel, discord.Thread)):
+        return await ctx.send("❌ Please choose a text channel or a thread.")
+
+    if target.guild.id != ctx.guild.id:
+        return await ctx.send("❌ That channel isn’t in this server.")
+
+    async with db_pool.acquire() as conn:
+        res = await conn.execute(
+            "DELETE FROM guild_spawn_channels WHERE guild_id = $1 AND channel_id = $2",
+            ctx.guild.id, target.id
+        )
+
+    # res is like "DELETE 0" or "DELETE 1"
+    deleted = res.endswith("1")
+
+    # refresh this guild's spawner to pick up the change
+    start_guild_spawn_task(ctx.guild.id)
+
+    if deleted:
+        await ctx.send(f"✅ Removed {target.mention} from spawn channels.")
+    else:
+        await ctx.send(f"ℹ️ {target.mention} wasn’t a spawn channel.")
+    
+
+@removespawnchannel.error
+async def removespawnchannel_error(ctx, error):
+    if isinstance(error, commands.BadArgument):
+        return await ctx.send(
+            f"❌ I couldn't find that channel. "
+            f"Use `{ctx.clean_prefix}removespawnchannel` here, or mention it like `#spawns`."
+        )
+    if isinstance(error, commands.MissingPermissions):
+        return await ctx.send("❌ You need the **Administrator** permission to do that.")
+    raise error
+
+@bot.command(name="addlinkchannel", aliases=["addlink", "addlinkch"])
+@commands.has_permissions(administrator=True)
+async def addlinkchannel(ctx, *, channel_text: str | None = None):
+    if ctx.guild is None:
+        return await ctx.send("❌ This command can only be used in a server.")
+
+    target = _resolve_channel_from_text(ctx, channel_text) or ctx.channel
+    if not isinstance(target, (discord.TextChannel, discord.Thread)):
+        return await ctx.send("❌ Please choose a text channel or a thread.")
+    if target.guild.id != ctx.guild.id:
+        return await ctx.send("❌ That channel isn’t in this server.")
+    if not _bot_can_send(ctx, target):
+        return await ctx.send(f"❌ I don’t have permission to post in {target.mention}.")
+
+    async with db_pool.acquire() as conn:
+        await _array_add(conn, ctx.guild.id, "link_channel_ids", target.id)
+
+    await ctx.send(f"✅ Added {target.mention} to **link channels**.")
+
+@bot.command(name="removelinkchannel", aliases=["removelink", "dellink"])
+@commands.has_permissions(administrator=True)
+async def removelinkchannel(ctx, *, channel_text: str | None = None):
+    if ctx.guild is None:
+        return await ctx.send("❌ This command can only be used in a server.")
+
+    target = _resolve_channel_from_text(ctx, channel_text) or ctx.channel
+    if not isinstance(target, (discord.TextChannel, discord.Thread)):
+        return await ctx.send("❌ Please choose a text channel or a thread.")
+    if target.guild.id != ctx.guild.id:
+        return await ctx.send("❌ That channel isn’t in this server.")
+
+    async with db_pool.acquire() as conn:
+        await _array_remove(conn, ctx.guild.id, "link_channel_ids", target.id)
+
+    await ctx.send(f"✅ Removed {target.mention} from **link channels** (if it was set).")
+
+@bot.command(name="linkchannels", aliases=["listlinks"])
+@commands.has_permissions(administrator=True)
+async def linkchannels(ctx):
+    async with db_pool.acquire() as conn:
+        ids = await conn.fetchval(
+            "SELECT link_channel_ids FROM guild_settings WHERE guild_id=$1",
+            ctx.guild.id
+        )
+    ids = ids or []
+    if not ids:
+        return await ctx.send("ℹ️ No link channels configured.")
+    mentions = []
+    for cid in ids:
+        ch = ctx.guild.get_channel(cid) or bot.get_channel(cid)
+        mentions.append(ch.mention if ch else f"`{cid}` (missing)")
+    await ctx.send("🔗 Link channels:\n• " + "\n• ".join(mentions))
+
+@bot.command(name="addgamechannel", aliases=["addgame", "addgamech"])
+@commands.has_permissions(administrator=True)
+async def addgamechannel(ctx, *, channel_text: str | None = None):
+    if ctx.guild is None:
+        return await ctx.send("❌ This command can only be used in a server.")
+
+    target = _resolve_channel_from_text(ctx, channel_text) or ctx.channel
+    if not isinstance(target, (discord.TextChannel, discord.Thread)):
+        return await ctx.send("❌ Please choose a text channel or a thread.")
+    if target.guild.id != ctx.guild.id:
+        return await ctx.send("❌ That channel isn’t in this server.")
+    if not _bot_can_send(ctx, target):
+        return await ctx.send(f"❌ I don’t have permission to post in {target.mention}.")
+
+    async with db_pool.acquire() as conn:
+        await _array_add(conn, ctx.guild.id, "game_channel_ids", target.id)
+
+    await ctx.send(f"✅ Added {target.mention} to **game channels**.")
+@bot.command(name="removegamechannel", aliases=["removegame", "delgame"])
+@commands.has_permissions(administrator=True)
+async def removegamechannel(ctx, *, channel_text: str | None = None):
+    if ctx.guild is None:
+        return await ctx.send("❌ This command can only be used in a server.")
+
+    target = _resolve_channel_from_text(ctx, channel_text) or ctx.channel
+    if not isinstance(target, (discord.TextChannel, discord.Thread)):
+        return await ctx.send("❌ Please choose a text channel or a thread.")
+    if target.guild.id != ctx.guild.id:
+        return await ctx.send("❌ That channel isn’t in this server.")
+
+    async with db_pool.acquire() as conn:
+        await _array_remove(conn, ctx.guild.id, "game_channel_ids", target.id)
+
+    await ctx.send(f"✅ Removed {target.mention} from **game channels** (if it was set).")
+@bot.command(name="gamechannels", aliases=["listgames"])
+@commands.has_permissions(administrator=True)
+async def gamechannels(ctx):
+    async with db_pool.acquire() as conn:
+        ids = await conn.fetchval(
+            "SELECT game_channel_ids FROM guild_settings WHERE guild_id=$1",
+            ctx.guild.id
+        )
+    ids = ids or []
+    if not ids:
+        return await ctx.send("ℹ️ No game channels configured. (If empty, game commands are allowed anywhere.)")
+    mentions = []
+    for cid in ids:
+        ch = ctx.guild.get_channel(cid) or bot.get_channel(cid)
+        mentions.append(ch.mention if ch else f"`{cid}` (missing)")
+    await ctx.send("🎮 Game channels:\n• " + "\n• ".join(mentions))
+
+@bot.command(name="addreactchannel", aliases=["addreact", "addreactch"])
+@commands.has_permissions(administrator=True)
+async def addreactchannel(ctx, *, channel_text: str | None = None):
+    """Add a channel where the bot is allowed to auto-react."""
+    if ctx.guild is None:
+        return await ctx.send("❌ This command can only be used in a server.")
+
+    target = _resolve_channel_from_text(ctx, channel_text) or ctx.channel
+    if not isinstance(target, (discord.TextChannel, discord.Thread)):
+        return await ctx.send("❌ Please choose a text channel or a thread.")
+    if target.guild.id != ctx.guild.id:
+        return await ctx.send("❌ That channel isn’t in this server.")
+    if not _bot_can_react(ctx, target):
+        return await ctx.send(f"❌ I don’t have permission to react in {target.mention}.")
+
+    async with db_pool.acquire() as conn:
+        await _array_add(conn, ctx.guild.id, "react_channel_ids", target.id)
+
+    await ctx.send(f"✅ Added {target.mention} to **react channels**.")
+@bot.command(name="removereactchannel", aliases=["removerea ct", "delreact"])
+@commands.has_permissions(administrator=True)
+async def removereactchannel(ctx, *, channel_text: str | None = None):
+    """Remove a channel from the bot’s auto-react list."""
+    if ctx.guild is None:
+        return await ctx.send("❌ This command can only be used in a server.")
+
+    target = _resolve_channel_from_text(ctx, channel_text) or ctx.channel
+    if not isinstance(target, (discord.TextChannel, discord.Thread)):
+        return await ctx.send("❌ Please choose a text channel or a thread.")
+    if target.guild.id != ctx.guild.id:
+        return await ctx.send("❌ That channel isn’t in this server.")
+
+    async with db_pool.acquire() as conn:
+        await _array_remove(conn, ctx.guild.id, "react_channel_ids", target.id)
+
+    await ctx.send(f"✅ Removed {target.mention} from **react channels** (if it was set).")
+@bot.command(name="reactchannels", aliases=["listreact"])
+@commands.has_permissions(administrator=True)
+async def reactchannels(ctx):
+    """List configured react channels."""
+    async with db_pool.acquire() as conn:
+        ids = await conn.fetchval(
+            "SELECT react_channel_ids FROM guild_settings WHERE guild_id=$1",
+            ctx.guild.id
+        )
+    ids = ids or []
+    if not ids:
+        return await ctx.send("ℹ️ No react channels configured.")
+    mentions = []
+    for cid in ids:
+        ch = ctx.guild.get_channel(cid) or bot.get_channel(cid)
+        mentions.append(ch.mention if ch else f"`{cid}` (missing)")
+    await ctx.send("😄 React channels:\n• " + "\n• ".join(mentions))
+
 #################################################################  CHECKS  #####################################################################################################
 
 @bot.check
