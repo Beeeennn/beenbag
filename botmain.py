@@ -1263,7 +1263,6 @@ async def credits(ctx):
         name="Learn more",
         value=(
             "• Minecraft Usage Guidelines (covers when/how Mojang content may be used).\n"
-            f"• Per-file sources: `{pref}source <mob>`"
         ),
         inline=False
     )
