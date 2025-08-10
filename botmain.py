@@ -1193,8 +1193,8 @@ async def on_guild_join(guild: discord.Guild):
             f"My prefix here is **`{prefix}`** (you can also mention me).\n\n"
             f"Use `{prefix}setup` to setup some server info (spawn, logs, links, game channels, prefix)\n"
             f"Join the discord at https://discord.gg/St4Asc5hJP to give suggestions, report bugs and ask any questions\n"
-            f""
             f"Try `{prefix}help` to see everything I can do."
+            f"THIS IS NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. Use `{prefix}credits` for more info"  
         ),
         color=discord.Color.green()
     )
@@ -1237,20 +1237,20 @@ async def yt(ctx, *, who = None):
 @bot.command(name="credits", aliases=["license", "licence", "about"])
 async def credits(ctx):
     pref = get_cached_prefix(ctx.guild.id if ctx.guild else None)
+
     e = discord.Embed(
         title="Attribution & Licensing",
-        description="This bot uses community media with the licenses below.",
+        description=(
+            "This bot **does not use any images from community wikis**.\n\n"
+            "Media used by the bot falls into these categories:\n"
+            "• **Original assets** created for the bot.\n"
+            "• **User-submitted content** used with permission.\n"
+            "• **Mojang-owned material** (e.g., screenshots/textures) only where permitted by the "
+            "**Minecraft Usage Guidelines** and with the required disclaimer."
+        ),
         color=discord.Color.blurple()
     )
-    e.add_field(
-        name="Minecraft Wiki (Fandom) media",
-        value=(
-            "Some images are from **Minecraft Wiki (Fandom)** and are used under "
-            "**CC BY-NC-SA 3.0** *for content the wiki may lawfully license*. "
-            "Individual file pages can specify different terms (including Mojang textures/screenshots or fair use)."
-        ),
-        inline=False
-    )
+
     e.add_field(
         name="Trademark / Affiliation",
         value=(
@@ -1258,15 +1258,17 @@ async def credits(ctx):
         ),
         inline=False
     )
+
     e.add_field(
         name="Learn more",
         value=(
-            "• Minecraft Wiki (Fandom) copyright page (CC BY-NC-SA 3.0 for licensable content).\n"
-            "• Minecraft Usage Guidelines (required disclaimer)."
+            "• Minecraft Usage Guidelines (covers when/how Mojang content may be used).\n"
+            f"• Per-file sources: `{pref}source <mob>`"
         ),
         inline=False
     )
-    e.set_footer(text=f"Need per-file sources? Try {pref}source <mob>")
+
+    e.set_footer(text="Questions about a specific image? Use the source command above.")
     await ctx.send(embed=e)
 
 # --- helpers to mark game commands ---
@@ -1561,7 +1563,7 @@ async def get_spawn_channels_for_guild(guild_id: int):
     return chans
 
 async def spawn_once_in_channel(chan):
-    # ---- your existing spawn body (trimmed): choose mob, load image, animate, insert into DB, schedule expiry ----
+    # ---- pick a mob exactly like before ----
     mob_names_all = list(MOBS.keys())
     mob_names = [m for m in mob_names_all if m not in NOT_SPAWN_MOBS]
     rarities  = [MOBS[name]["rarity"] for name in mob_names]
@@ -1579,9 +1581,18 @@ async def spawn_once_in_channel(chan):
         else:
             src = Image.open(f"{mob_path}.png").convert("RGBA")
     except FileNotFoundError:
-        await chan.send(f"A wild **{mob}** appeared! (no image found)")
+        # still send an embed so UX is consistent
+        pref = get_cached_prefix(chan.guild.id if chan.guild else None)
+        e = discord.Embed(
+            title="A mob is appearing!",
+            description="(no image found this time) — say its name to catch it",
+            color=discord.Color.blurple()
+        )
+        e.set_footer(text=f"For attribution & licensing, use {pref}credits")
+        await chan.send(embed=e)
         return
 
+    # ---- choose a focal point (same as before) ----
     alpha = src.split()[-1]
     bbox  = alpha.getbbox()
     if bbox:
@@ -1601,6 +1612,7 @@ async def spawn_once_in_channel(chan):
     else:
         center = (random.uniform(0.1, 0.9), random.uniform(0.1, 0.9))
 
+    # ---- frame creators (unchanged) ----
     def pixelate(img: Image.Image, size: int) -> Image.Image:
         small = img.resize((size, size), resample=Image.NEAREST)
         return small.resize(img.size, Image.NEAREST)
@@ -1623,11 +1635,27 @@ async def spawn_once_in_channel(chan):
     levels     = frame_sizes if pix else zoom_levels
     make_frame = (lambda lvl: pixelate(src, lvl)) if pix else (lambda lvl: zoom_frame_at(src, lvl, center))
 
+    # ---- build the embed once; image will be provided via attachment ----
+    pref = get_cached_prefix(chan.guild.id if chan.guild else None)
+    embed = discord.Embed(
+        title="A mob is appearing!",
+        description=f"Say its name to catch it.",
+        color=discord.Color.blurple()
+    )
+    # IMPORTANT: point the embed image to the attachment filename
+    embed.set_image(url="attachment://spawn.png")
+    embed.set_footer(text=f"For attribution & licensing, use {pref}credits")
+
+    # first frame
     buf = io.BytesIO()
     make_frame(levels[0]).save(buf, format="PNG")
     buf.seek(0)
-    msg = await chan.send("A mob is appearing, say its name to catch it", file=discord.File(buf, "spawn.png"))
+    msg = await chan.send(
+        embed=embed,
+        file=discord.File(buf, "spawn.png")
+    )
 
+    # DB insert & expiry
     stay_seconds = RARITIES[MOBS[mob]["rarity"]]["stay"]
     expires = datetime.utcnow() + timedelta(seconds=stay_seconds)
 
@@ -1642,16 +1670,18 @@ async def spawn_once_in_channel(chan):
             chan.guild.id, chan.id, mob, msg.id, datetime.utcnow(), expires
         )
 
+    # subsequent frames: replace the attachment, keep the same embed (it still points to attachment://spawn.png)
     for lvl in levels[1:]:
         await asyncio.sleep(15)
         buf = io.BytesIO()
         make_frame(lvl).save(buf, format="PNG")
         buf.seek(0)
         await msg.edit(
-            content="A mob is appearing, say its name to catch it",
+            embed=embed,
             attachments=[discord.File(buf, "spawn.png")]
         )
 
+    # schedule expiry watcher
     bot.loop.create_task(
         watch_spawn_expiry(
             spawn_id=rec["spawn_id"],
