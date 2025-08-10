@@ -16,7 +16,7 @@ from constants import *
 import utils as u
 import cc
 from stronghold import PathButtons
-
+import re
 chat_xp_cd = commands.CooldownMapping.from_cooldown(
     2,                # max tokens
     1800.0,           # per 1800 seconds (30m)
@@ -408,6 +408,28 @@ async def handle_get_image(request):
 
 ########################################### ADMIN #########################################################################
 
+# matches: <#123>, https://discord.com/channels/111/222, 222 (raw id)
+_CHANNEL_TOKEN_RE = re.compile(
+    r"(?:<#(?P<m>\d{15,25})>|https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/channels/\d{15,25}/(?P<u>\d{15,25})|\b(?P<i>\d{15,25})\b)"
+)
+
+def parse_channel_ids_any(bot: commands.Bot, msg: discord.Message) -> list[int]:
+    ids = set()
+    for m in _CHANNEL_TOKEN_RE.finditer(msg.content):
+        cid = m.group("m") or m.group("u") or m.group("i")
+        if cid:
+            try:
+                cid_i = int(cid)
+            except ValueError:
+                continue
+            ch = msg.guild.get_channel(cid_i) or bot.get_channel(cid_i)
+            if ch and ch.guild.id == msg.guild.id:
+                ids.add(cid_i)
+    return list(ids)
+
+def parse_one_channel_id_any(bot: commands.Bot, msg: discord.Message) -> int | None:
+    ids = parse_channel_ids_any(bot, msg)
+    return ids[0] if ids else None
 @bot.command(name="setupbot", aliases=["setup"])
 @commands.has_permissions(administrator=True)
 async def setup(ctx):
@@ -448,32 +470,32 @@ async def setup(ctx):
         # 1) Spawn channels
         await ctx.send("**2/7** Mention the **channels for mob spawns** (space/comma separated), or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
-        spawn_channels = parse_channel_list(msg) if msg.content.lower().strip() != "none" else []
+        spawn_channels = parse_channel_ids_any(bot, msg) if msg.content.strip().lower() != "none" else []
 
         # 2) Announce channel
         await ctx.send("**3/7** Mention the **announce channel** (level ups, welcomes), or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
-        announce_channel_id = msg.channel_mentions[0].id if (msg.content.lower().strip() != "none" and msg.channel_mentions) else None
+        announce_channel_id = parse_one_channel_id_any(bot, msg) if msg.content.strip().lower() != "none" else None
 
         # 3) Link channels
         await ctx.send("**4/7** Mention the **link channels** (space/comma) where the bot can send links, or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
-        link_channel_ids = parse_channel_list(msg) if msg.content.lower().strip() != "none" else []
+        link_channel_ids = parse_channel_ids_any(bot, msg) if msg.content.strip().lower() != "none" else []
 
         # 4) React channels
         await ctx.send("**5/7** Mention the **react channels** (space/comma) where the bot can auto-react, or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
-        react_channel_ids = parse_channel_list(msg) if msg.content.lower().strip() != "none" else []
+        react_channel_ids = parse_channel_ids_any(bot, msg) if msg.content.strip().lower() != "none" else []
 
         # 5) Game channels
         await ctx.send("**6/7** Mention the **game channels** (space/comma) where game commands are allowed, or type `none` to allow anywhere:")
         msg = await bot.wait_for("message", check=check)
-        game_channel_ids = parse_channel_list(msg) if msg.content.lower().strip() != "none" else []
+        game_channel_ids = parse_channel_ids_any(bot, msg) if msg.content.strip().lower() != "none" else []
 
         # 7) Log channel
         await ctx.send("**7/7** Mention the **log channel** (admin logs), or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
-        log_channel_id = msg.channel_mentions[0].id if (msg.content.lower().strip() != "none" and msg.channel_mentions) else None
+        log_channel_id = parse_one_channel_id_any(bot, msg) if msg.content.strip().lower() != "none" else None
 
         # Upsert guild_settings (now also stores command_prefix)
         await conn.execute(
