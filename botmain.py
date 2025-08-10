@@ -80,6 +80,7 @@ bot = BeenBag(
     case_insensitive=True,
     intents=intents
 )
+bot.remove_command("help")
 #hold an asyncpg pool here
 db_pool: asyncpg.Pool = None
 
