@@ -347,8 +347,8 @@ async def on_message(message):
                 # skip further processing (so they don’t also run a command)
             return
         
-    if message.content.startswith("! "):
-        message.content = "!" + message.content[2:]
+    if message.content.startswith("! ") or message.content.startswith("!"):
+        message.content = "bc!" + message.content[2:]
     await bot.process_commands(message)
 
 
