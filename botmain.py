@@ -46,9 +46,30 @@ def flexible_prefix(bot, message):
     if message.content.startswith("!"):
         return "!"
     return commands.when_mentioned(bot, message)  # still allow @BotName commands
+if not hasattr(globals(), "_prefix_cache"):
+    _prefix_cache = {}  # type: dict[int, str]
+
+async def warm_prefix_cache():
+    """Load all guild prefixes into memory."""
+    global _prefix_cache
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT guild_id, command_prefix FROM guild_settings")
+    _prefix_cache = {r["guild_id"]: (r["command_prefix"] or "bc!") for r in rows}
+
+def get_cached_prefix(guild_id: int | None) -> str:
+    if guild_id is None:
+        return "bc!"
+    return _prefix_cache.get(guild_id, "bc!")
+
+def dynamic_prefix(bot: commands.Bot, message: discord.Message):
+    """
+    Let commands work with @mention, the configured prefix, and (!) as a legacy alias.
+    """
+    configured = get_cached_prefix(message.guild.id if message.guild else None)
+    return commands.when_mentioned_or(configured, "!")(bot, message)
 
 bot = commands.Bot(
-    command_prefix="bc!",
+    command_prefix=dynamic_prefix,
     case_insensitive=True,
     intents=intents
 )
@@ -189,6 +210,8 @@ async def on_ready():
     logging.info(f"Bot ready as {bot.user}")
     # if not hasattr(bot, "_decay_task"):
     #     bot._decay_task = bot.loop.create_task(daily_level_decay())
+        # load prefixes into cache
+    await warm_prefix_cache()
     if not hasattr(bot, "_guild_spawn_tasks"):
         bot._guild_spawn_tasks = {}
     # Start/ensure per‑guild spawners
@@ -383,7 +406,7 @@ async def handle_get_image(request):
 
 ########################################### ADMIN #########################################################################
 
-@bot.command(name="setupbot")
+@bot.command(name="setupbot", aliases=["setup"])
 @commands.has_permissions(administrator=True)
 async def setup(ctx):
     guild_id = ctx.guild.id
@@ -394,40 +417,63 @@ async def setup(ctx):
     def parse_channel_list(msg):
         return [c.id for c in msg.channel_mentions]
 
+    def validate_prefix(s: str) -> str | None:
+        s = s.strip()
+        if not s:
+            return None
+        if len(s) > 8:
+            return None
+        if any(ch.isspace() for ch in s):
+            return None
+        return s
+
     async with db_pool.acquire() as conn:
-        # Spawn channels (existing flow)
-        await ctx.send(
-            "**1/6** Mention the **channels for mob spawns** (space/comma separated), or type `none` to skip:"
-        )
+
+
+        
+        # 6) Command prefix 
+        await ctx.send("**1/7** What **command prefix** should I use? (e.g. `!`, `bc!`, `$`). Type `default` to use `bc!`.")
+        msg = await bot.wait_for("message", check=check)
+        raw = msg.content.strip()
+        if raw.lower() == "default":
+            command_prefix = "bc!"
+        else:
+            command_prefix = validate_prefix(raw)
+            if not command_prefix:
+                await ctx.send("❌ Invalid prefix. Using default `bc!`.")
+                command_prefix = "bc!"
+
+        # 1) Spawn channels
+        await ctx.send("**2/7** Mention the **channels for mob spawns** (space/comma separated), or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
         spawn_channels = parse_channel_list(msg) if msg.content.lower().strip() != "none" else []
 
-        # Announce channel (single)
-        await ctx.send("**2/6** Mention the **announce channel** where leveling announcements are made along with welcomes, or type `none` to skip:")
+        # 2) Announce channel
+        await ctx.send("**3/7** Mention the **announce channel** (level ups, welcomes), or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
         announce_channel_id = msg.channel_mentions[0].id if (msg.content.lower().strip() != "none" and msg.channel_mentions) else None
 
-        # Link channels (array)
-        await ctx.send("**3/6** Mention the **link channels** (space/comma separated) where the bot can send links, or type `none` to skip:")
+        # 3) Link channels
+        await ctx.send("**4/7** Mention the **link channels** (space/comma) where the bot can send links, or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
         link_channel_ids = parse_channel_list(msg) if msg.content.lower().strip() != "none" else []
 
-        # React channels (array)
-        await ctx.send("**4/6** Mention the **react channels** (space/comma separated) where the bot can react to messages, or type `none` to skip:")
+        # 4) React channels
+        await ctx.send("**5/7** Mention the **react channels** (space/comma) where the bot can auto-react, or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
         react_channel_ids = parse_channel_list(msg) if msg.content.lower().strip() != "none" else []
 
-        # Game channels (array)  ⬅️ NEW
-        await ctx.send("**5/6** Mention the **game channels** (space/comma separated) where game commands are allowed, or type `none` to allow them anywhere:")
+        # 5) Game channels
+        await ctx.send("**6/7** Mention the **game channels** (space/comma) where game commands are allowed, or type `none` to allow anywhere:")
         msg = await bot.wait_for("message", check=check)
         game_channel_ids = parse_channel_list(msg) if msg.content.lower().strip() != "none" else []
 
-        # Log channel (single)
-        await ctx.send("**6/6** Mention the **log channel** where any admin logs are sent, or type `none` to skip:")
+        # 7) Log channel
+        await ctx.send("**7/7** Mention the **log channel** (admin logs), or type `none` to skip:")
         msg = await bot.wait_for("message", check=check)
         log_channel_id = msg.channel_mentions[0].id if (msg.content.lower().strip() != "none" and msg.channel_mentions) else None
 
-        # Upsert guild_settings
+        # Upsert guild_settings (now also stores command_prefix)
         await conn.execute(
             """
             INSERT INTO guild_settings (
@@ -436,14 +482,16 @@ async def setup(ctx):
                 link_channel_ids,
                 react_channel_ids,
                 game_channel_ids,
-                log_channel_id
-            ) VALUES ($1, $2, $3::bigint[], $4::bigint[], $5::bigint[], $6)
+                log_channel_id,
+                command_prefix
+            ) VALUES ($1, $2, $3::bigint[], $4::bigint[], $5::bigint[], $6, $7)
             ON CONFLICT (guild_id) DO UPDATE
             SET announce_channel_id = EXCLUDED.announce_channel_id,
                 link_channel_ids    = EXCLUDED.link_channel_ids,
                 react_channel_ids   = EXCLUDED.react_channel_ids,
                 game_channel_ids    = EXCLUDED.game_channel_ids,
-                log_channel_id      = EXCLUDED.log_channel_id
+                log_channel_id      = EXCLUDED.log_channel_id,
+                command_prefix      = EXCLUDED.command_prefix
             """,
             guild_id,
             announce_channel_id,
@@ -451,6 +499,7 @@ async def setup(ctx):
             react_channel_ids,
             game_channel_ids,
             log_channel_id,
+            command_prefix,
         )
 
         # Replace spawn channels
@@ -461,8 +510,11 @@ async def setup(ctx):
                 guild_id, ch_id
             )
 
+    # update cache immediately so it takes effect
+    _prefix_cache[guild_id] = command_prefix
+
     await ctx.send(
-        "✅ Setup complete!\n"
+        f"✅ Setup complete! Using prefix **`{command_prefix}`**\n"
         "• spawn channels saved\n"
         "• announce channel saved\n"
         "• link channels saved\n"
@@ -472,6 +524,66 @@ async def setup(ctx):
     )
     start_guild_spawn_task(guild_id)
 
+# ---------- prefix helpers (place near your other helpers) ----------
+DEFAULT_PREFIX = "bc!"
+
+# shared cache you already use; make sure this exists
+# _prefix_cache: dict[int, str]  # assumed created earlier
+
+def sanitize_prefix(raw: str) -> str | None:
+    """Return a cleaned prefix or None if invalid."""
+    if raw is None:
+        return None
+    s = raw.strip()
+    if not s:
+        return None
+    if len(s) > 8:       # keep it reasonable
+        return None
+    if any(ch.isspace() for ch in s):
+        return None
+    return s
+
+# ---------- setprefix command ----------
+@bot.command(name="setprefix", aliases=["prefix"])
+@commands.has_permissions(administrator=True)
+async def setprefix(ctx, *, new_prefix: str | None = None):
+    if ctx.guild is None:
+        return await ctx.send("❌ This command can only be used in a server.")
+
+    guild_id = ctx.guild.id
+
+    # Show current prefix if no argument given
+    if new_prefix is None:
+        current = _prefix_cache.get(guild_id, DEFAULT_PREFIX)
+        return await ctx.send(
+            f"Current prefix here is **`{current}`**.\n"
+            f"Change it with `@{bot.user.name} setprefix <new>` or `{current}setprefix <new>`.\n"
+            f"Use `setprefix default` to reset."
+        )
+
+    # Handle reset/default
+    if new_prefix.lower() in ("default", "reset"):
+        prefix = DEFAULT_PREFIX
+    else:
+        prefix = sanitize_prefix(new_prefix)
+        if not prefix:
+            return await ctx.send("❌ Invalid prefix. Use 1–8 non-space characters. Example: `!`, `bc!`, `$`")
+
+    # Persist + cache
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO guild_settings (guild_id, command_prefix)
+            VALUES ($1, $2)
+            ON CONFLICT (guild_id) DO UPDATE
+            SET command_prefix = EXCLUDED.command_prefix
+            """,
+            guild_id, prefix
+        )
+
+    _prefix_cache[guild_id] = prefix  # take effect immediately
+
+    await ctx.send(f"✅ Prefix updated to **`{prefix}`**. You can now use `{prefix}help`.")
 
 #################################################################  CHECKS  #####################################################################################################
 
@@ -512,6 +624,7 @@ async def only_in_game_channels(ctx: commands.Context):
 ############################################################## EVENTS #############################################################
 @bot.event
 async def on_guild_join(guild):
+    _prefix_cache[guild.id] = "bc!"  # default until setup runs
     start_guild_spawn_task(guild.id)
 
 @bot.event
@@ -519,6 +632,7 @@ async def on_guild_remove(guild):
     stop_guild_spawn_task(guild.id)
 
 ############################################################## USER COMMANDS ################################################################
+
 @bot.command(name="linkyt")
 async def linkyt(ctx, *, channel_name: str):
     await cc.c_linkyt(ctx,channel_name)
@@ -543,7 +657,7 @@ async def give(ctx, who: str, *, mob: str):
 @give.error
 async def give_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
-        return await ctx.send("❌ Usage: `!give <player> <mob>`")
+        return await ctx.send(f"❌ Usage: `{ctx.clean_prefix}give <player> <mob>`")
     raise error
 
 
@@ -554,7 +668,7 @@ async def craft(ctx, *args):
 @craft.error
 async def craft_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
-        return await ctx.send("❌ Usage: `!craft <tool> [tier]`")
+        return await ctx.send(f"❌ Usage: `{ctx.clean_prefix}craft <tool> [tier]`")
     raise error
 
 @game_command()
@@ -564,7 +678,7 @@ async def recipe(ctx, *args):
 @craft.error
 async def craft_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
-        return await ctx.send("❌ Usage: `!recipe <tool> [tier]`")
+        return await ctx.send(f"❌ Usage: `{ctx.clean_prefix}recipe <tool> [tier]`")
     raise error
 
 @game_command()
@@ -705,7 +819,7 @@ async def use(ctx, *, args:str):
         quantity = int(qty_str)
         await cc.c_use(ctx,bot,item_name,quantity)
     except ValueError:
-        return await ctx.send("❌ Use it like `!use item_name quantity` (e.g. `!use fish food 100`).")
+        return await ctx.send(f"❌ Use it like `!use item_name quantity` (e.g. `{ctx.clean_prefix}use fish food 100`).")
 
 
 @commands.cooldown(1, 90, commands.BucketType.user)

@@ -95,7 +95,7 @@ async def c_linkyt(ctx, channel_name: str):
     f"🔗 **YouTube Link Code** 🔗\n"
     f"Channel: **{channel_name}**\n"
     f"Your code is: `{code}`\n\n"
-    f"Please type `!link {code}` in one of my **livestreams** within 3 hours to complete linking."
+    f"Please type `{ctx.clean_prefix}link {code}` in one of my **livestreams** within 3 hours to complete linking."
         
     )
     if sent:
@@ -104,7 +104,14 @@ async def c_linkyt(ctx, channel_name: str):
         await ctx.send(
             f"{ctx.author.mention}, I couldn’t DM you right now—please try again later. Make sure to enable DMs from server members and try again (Content and social -> Social Permissions -> Direct Messages) You can turn it back off after."
         )
-
+async def get_link_channel_ids(guild_id: int) -> list[int]:
+    """Return configured link channels for this guild or []."""
+    async with db_pool.acquire() as conn:
+        ids = await conn.fetchval(
+            "SELECT link_channel_ids FROM guild_settings WHERE guild_id = $1",
+            guild_id
+        )
+    return ids or []
 async def c_yt(ctx, who = None):
     """
     Show the YouTube channel linked to a user.
@@ -122,9 +129,13 @@ async def c_yt(ctx, who = None):
         if member is None:
             return await ctx.send("Member not found.")  # or "Member not found."
     user_id = member.id
-    # 0) Restrict to LINK_CHANNELS
-    if ctx.channel.id not in LINK_CHANNELS:
-        return await ctx.send("❌ You can’t do that here.")
+    # 0) Restrict to link channels (if any configured)
+    link_ids = await get_link_channel_ids(ctx.guild.id)
+    if link_ids and ctx.channel.id not in link_ids:
+        # build nice mentions for configured channels that still exist
+        mentions = [f"<#{cid}>" for cid in link_ids if ctx.guild.get_channel(cid)]
+        where = ", ".join(mentions) if mentions else "one of the configured link channels"
+        return await ctx.send(f"❌ You can’t do that here. Please use {where}.")
 
     # 2) Fetch from accountinfo
     async with db_pool.acquire() as conn:
@@ -142,7 +153,7 @@ async def c_yt(ctx, who = None):
     if not row or (not row["yt_channel_name"] and not row["yt_channel_id"]):
         if member == ctx.author:
             return await ctx.send(
-                "You haven’t linked a YouTube channel! Use `!linkyt <channel name>`."
+                "You haven’t linked a YouTube channel! Use `{ctx.clean_prefix}linkyt <channel name>`."
             )
         else:
             return await ctx.send(f"{member.display_name} hasn’t linked YT yet.")
@@ -256,7 +267,7 @@ async def c_give(ctx, who: str, mob: str):
 async def c_recipe(ctx, args):
     user_id = ctx.author.id
     if not args:
-        return await ctx.send("❌ Usage: `!recipe <tool> [tier]`")
+        return await ctx.send(f"❌ Usage: `{ctx.clean_prefix}recipe <tool> [tier]`")
 
     # Build tool name from all but last arg; tier is last arg if 2+ args
     if len(args) == 1:
@@ -277,7 +288,7 @@ async def c_recipe(ctx, args):
 
     key = (tool, tier)
     if key not in CRAFT_RECIPES:
-        return await ctx.send("❌ Invalid recipe. Try `!recipe pickaxe iron` or `!recipe totem`.")
+        return await ctx.send(f"❌ Invalid recipe. Try `{ctx.clean_prefix}recipe pickaxe iron` or `{ctx.clean_prefix}recipe totem`.")
 
     wood_cost, ore_cost, ore_col, uses = CRAFT_RECIPES[key]
     need = [f"**{wood_cost} wood**"]
@@ -299,7 +310,7 @@ async def c_craft(ctx, args):
     user_id = ctx.author.id
     guild_id = gid_from_ctx(ctx)
     if not args:
-        return await ctx.send("❌ Usage: `!craft <tool> [tier]`")
+        return await ctx.send(f"❌ Usage: `{ctx.clean_prefix}craft <tool> [tier]`")
 
     # Build tool name from all but last arg; tier is last arg if 2+ args
     if len(args) == 1:
@@ -333,7 +344,7 @@ async def c_craft(ctx, args):
 
     key = (tool, tier)
     if key not in CRAFT_RECIPES:
-        return await ctx.send("❌ Invalid recipe. Try `!craft pickaxe iron` or `!craft fishing rod`.")
+        return await ctx.send(f"❌ Invalid recipe. Try `{ctx.clean_prefix}craft pickaxe iron` or `{ctx.clean_prefix}craft fishing rod`.")
 
     wood_cost, ore_cost, ore_col, uses = CRAFT_RECIPES[key]
 
@@ -539,7 +550,7 @@ async def c_buy(ctx, args):
       !buy exp 100
     """
     if not args:
-        return await ctx.send("❌ Usage: `!buy <item name> [quantity]`")
+        return await ctx.send(f"❌ Usage: `{ctx.clean_prefix}buy <item name> [quantity]`")
 
     # 1) Parse quantity if last arg is an integer
     try:
@@ -636,14 +647,14 @@ async def c_buy(ctx, args):
         elif display_name == "Boss Mob Ticket":
             await ctx.send(
                 f"✅ You bought **{qty} Boss Mob Ticket{'s' if qty!=1 else ''}**! "
-                "Use `!use Ticket <mob name>` before stream to redeem, this allows you to say the name of the mob during the stream to spawn it, don't worry about typos, it will still be valid."
+                f"Use `{ctx.clean_prefix}use Ticket <mob name>` before stream to redeem, this allows you to say the name of the mob during the stream to spawn it, don't worry about typos, it will still be valid."
             )
             await give_items(user_id,"Boss Mob Ticket",qty,"items",True,conn,guild_id)
 
         elif display_name == "Mystery Animal":
             await ctx.send(
                 f"✅ You bought **{qty} Mystery Mob Pack{'s' if qty!=1 else ''}**! "
-                "Use `!use Mob Pack` to redeem"
+                f"Use `{ctx.clean_prefix}use Mob Pack` to redeem"
             )
             await give_items(user_id,"Mystery Mob Pack",qty,"items",True,conn,guild_id)
 
@@ -1028,7 +1039,7 @@ async def c_mine(ctx):
         if not pickaxes:
             ctx.command.reset_cooldown(ctx)
             return await ctx.send(
-                "❌ You need a pickaxe with at least 1 use to mine! Craft one with `!craft pickaxe wood`."
+                f"❌ You need a pickaxe with at least 1 use to mine! Craft one with `{ctx.clean_prefix}craft pickaxe wood`."
             )
 
         # 2) Determine your highest tier pickaxe
@@ -1384,7 +1395,7 @@ async def make_fish(ctx,fish_path: str):
         if not rods:
             ctx.command.reset_cooldown(ctx)
             return await ctx.send(
-                "❌ You need a fishing rod with at least 1 use to mine! Craft one with `!craft fishing rod`."
+                f"❌ You need a fishing rod with at least 1 use to mine! Craft one with `{ctx.clean_prefix}craft fishing rod`."
             )
         # 2) Determine your highest tier pickaxe
         owned_tiers = {r["tier"] for r in rods}
