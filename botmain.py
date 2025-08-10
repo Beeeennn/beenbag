@@ -37,7 +37,16 @@ if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable not set")
 
 # Bot setup
+DEFAULT_PREFIX = "bc!"
 
+class BeenBag(commands.Bot):
+    async def get_prefix(self, message: discord.Message):
+        # Pull from cache; fall back to default
+        gid = message.guild.id if message.guild else None
+        pref = _prefix_cache.get(gid, DEFAULT_PREFIX)
+
+        # Accept: @mention, configured prefix, and "!" as a safety fallback
+        return commands.when_mentioned_or(pref, "!")(self, message)
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -62,18 +71,15 @@ def get_cached_prefix(guild_id: int | None) -> str:
     return _prefix_cache.get(guild_id, "bc!")
 
 def dynamic_prefix(bot: commands.Bot, message: discord.Message):
-    """
-    Let commands work with @mention, the configured prefix, and (!) as a legacy alias.
-    """
     configured = get_cached_prefix(message.guild.id if message.guild else None)
-    return commands.when_mentioned_or(configured, "!")(bot, message)
+    # Allow @mention, the configured prefix, and legacy aliases "!" and "bc!"
+    return commands.when_mentioned_or(configured, "!", "bc!")(bot, message)
 
-bot = commands.Bot(
-    command_prefix=dynamic_prefix,
+bot = BeenBag(
+    command_prefix=DEFAULT_PREFIX,  # not used, overridden by get_prefix
     case_insensitive=True,
     intents=intents
 )
-
 #hold an asyncpg pool here
 db_pool: asyncpg.Pool = None
 
@@ -370,10 +376,6 @@ async def on_message(message):
                 # skip further processing (so they don’t also run a command)
             return
         
-    if message.content.startswith("! "):
-        message.content = "bc!" + message.content[2:]
-    elif message.content.startswith("!"):
-        message.content = "bc!" + message.content[1:]
     await bot.process_commands(message)
 
 
@@ -632,7 +634,11 @@ async def on_guild_remove(guild):
     stop_guild_spawn_task(guild.id)
 
 ############################################################## USER COMMANDS ################################################################
-
+@bot.command()
+async def showprefix(ctx):
+    gid = ctx.guild.id if ctx.guild else None
+    await ctx.send(f"configured: `{_prefix_cache.get(gid, DEFAULT_PREFIX)}`, used: `{ctx.clean_prefix}`")
+    
 @bot.command(name="linkyt")
 async def linkyt(ctx, *, channel_name: str):
     await cc.c_linkyt(ctx,channel_name)
