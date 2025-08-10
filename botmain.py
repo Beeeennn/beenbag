@@ -815,7 +815,7 @@ async def get_spawn_channels_for_guild(guild_id: int):
             chans.append(ch)
     return chans
 
-async def spawn_once_in_channel(chan: discord.abc.MessageableChannel):
+async def spawn_once_in_channel(chan):
     # ---- your existing spawn body (trimmed): choose mob, load image, animate, insert into DB, schedule expiry ----
     mob_names = list(MOBS.keys())
     rarities  = [MOBS[name]["rarity"] for name in mob_names]
