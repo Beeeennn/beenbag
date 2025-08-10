@@ -1219,6 +1219,191 @@ async def on_guild_join(guild: discord.Guild):
                 )
         except Exception:
             logging.exception("Also failed to DM owner after join")
+################################################################ HELP ############################################################################
+# === imports (place near your other imports) ===
+from typing import List, Dict, Optional
+import inspect
+
+# === helper: nice signature for commands ===
+def _command_signature(cmd: commands.Command, prefix: str) -> str:
+    # Build something like: !give <player> <mob>
+    parts = [cmd.name]
+    if cmd.signature:
+        parts.append(cmd.signature)
+    return f"{prefix}{' '.join(parts)}"
+
+# Categorise commands: Game (tagged with is_game_command), Admin/Setup (named), General (everything else)
+_ADMIN_NAMES = {
+    "setupbot","setup","setlogs","logs","addspawnchannel","addspawn","removespawnchannel","removespawn","delspawn",
+    "addlinkchannel","addlink","removelinkchannel","removelink","dellink","linkchannels","listlinks",
+    "addgamechannel","addgame","removegamechannel","removegame","delgame","gamechannels","listgames",
+    "addreactchannel","addreact","removereactchannel","delreact","reactchannels","listreact",
+    "enablewelcome","welcomeon","disablewelcome","welcomeoff","setprefix","prefix","spawnnow"
+}
+
+async def _categorize_commands(ctx: commands.Context) -> Dict[str, List[commands.Command]]:
+    cats = {"General": [], "Game": [], "Admin/Setup": []}
+    for cmd in ctx.bot.commands:
+        if cmd.hidden:
+            continue
+        if cmd.name in {"help", "commands"}:
+            continue
+        try:
+            can_run = await cmd.can_run(ctx)
+        except commands.CommandError:
+            can_run = False
+        if not can_run:
+            continue
+
+        if getattr(cmd.callback, "is_game_command", False):
+            cats["Game"].append(cmd)
+        elif cmd.name in _ADMIN_NAMES or any(a in _ADMIN_NAMES for a in cmd.aliases):
+            cats["Admin/Setup"].append(cmd)
+        else:
+            cats["General"].append(cmd)
+
+    for k in cats:
+        cats[k] = sorted(cats[k], key=lambda c: c.name)
+    return cats
+
+
+# === simple paginator with buttons ===
+class PaginatorView(discord.ui.View):
+    def __init__(self, pages: List[discord.Embed], author_id: int, timeout: int = 120):
+        super().__init__(timeout=timeout)
+        self.pages = pages
+        self.idx = 0
+        self.author_id = author_id
+
+    async def _show(self, interaction: discord.Interaction):
+        for i, b in enumerate(self.children):
+            if isinstance(b, discord.ui.Button):
+                b.disabled = (i == 0 and self.idx == 0) or (i == 1 and self.idx == len(self.pages) - 1)
+        await interaction.response.edit_message(embed=self.pages[self.idx], view=self)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user and interaction.user.id == self.author_id
+
+    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary)
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.idx > 0:
+            self.idx -= 1
+        await self._show(interaction)
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.idx < len(self.pages) - 1:
+            self.idx += 1
+        await self._show(interaction)
+
+    @discord.ui.button(label="Close", style=discord.ButtonStyle.danger)
+    async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+        self.stop()
+
+async def _build_overview_pages(ctx: commands.Context) -> List[discord.Embed]:
+    pref = get_cached_prefix(ctx.guild.id if ctx.guild else None)
+    cats = await _categorize_commands(ctx)
+
+    pages: List[discord.Embed] = []
+    # Intro
+    intro = discord.Embed(
+        title=f"{ctx.bot.user.name} — Help",
+        description=(
+            f"My prefix here is **`{pref}`** (you can also mention me).\n"
+            f"Use `{pref}help <command>` for details.\n\n"
+            "Navigate with the buttons below."
+        ),
+        color=discord.Color.blurple()
+    )
+    intro.set_footer(text=f"For attribution & licensing, use {pref}credits")
+    pages.append(intro)
+
+    # One page per category
+    for cat, cmds in cats.items():
+        if not cmds:
+            continue
+        e = discord.Embed(title=f"{cat} Commands", color=discord.Color.blurple())
+        lines = []
+        for c in cmds:
+            sig = _command_signature(c, pref)
+            # First line: signature; on the right show aliases if any
+            alias_txt = f" (aliases: {', '.join(c.aliases)})" if c.aliases else ""
+            brief = c.help or c.description or ""
+            line = f"**`{sig}`**{alias_txt}\n{brief}".strip()
+            # Keep field limits sane—collect lines then join
+            lines.append(line if brief else f"**`{sig}`**{alias_txt}")
+        # Discord has a 1024 char per field value limit, so chunk if needed
+        chunk = []
+        total = 0
+        for ln in lines:
+            if total + len(ln) + 1 > 1024 and chunk:
+                e.add_field(name="\u200b", value="\n".join(chunk), inline=False)
+                chunk, total = [], 0
+            chunk.append(ln)
+            total += len(ln) + 1
+        if chunk:
+            e.add_field(name="\u200b", value="\n".join(chunk), inline=False)
+
+        e.set_footer(text=f"For attribution & licensing, use {pref}credits")
+        pages.append(e)
+
+    return pages
+
+def _find_command(bot: commands.Bot, name_or_alias: str) -> Optional[commands.Command]:
+    name_or_alias = (name_or_alias or "").lower().strip()
+    if not name_or_alias:
+        return None
+    cmd = bot.get_command(name_or_alias)
+    if cmd:
+        return cmd
+    # manual alias search in case get_command didn’t resolve
+    for c in bot.commands:
+        if name_or_alias in [a.lower() for a in c.aliases]:
+            return c
+    return None
+
+@bot.command(name="help", aliases=["commands"])
+async def help_cmd(ctx, *, query: str = None):
+    """Show help pages, or help for a specific command."""
+    pref = get_cached_prefix(ctx.guild.id if ctx.guild else None)
+
+    # Specific command?
+    if query:
+        cmd = _find_command(bot, query)
+        if not cmd or cmd.hidden:
+            return await ctx.send(f"❌ I don’t recognise the command `{query}`.")
+        sig = _command_signature(cmd, pref)
+        e = discord.Embed(
+            title=f"Help — {cmd.name}",
+            description=f"**Usage:** `{sig}`",
+            color=discord.Color.blurple()
+        )
+        if cmd.help or cmd.description:
+            e.add_field(name="What it does", value=cmd.help or cmd.description, inline=False)
+        if cmd.aliases:
+            e.add_field(name="Aliases", value=", ".join(cmd.aliases), inline=False)
+
+        # If this command is gated to game channels, mention that
+        if getattr(cmd.callback, "is_game_command", False):
+            e.add_field(name="Note", value="This is a **game command** and may be restricted to specific channels.", inline=False)
+
+        e.set_footer(text=f"For attribution & licensing, use {pref}credits")
+        return await ctx.send(embed=e)
+
+    # Overview (paginated)
+    pages = await _build_overview_pages(ctx)
+    if len(pages) == 1:
+        return await ctx.send(embed=pages[0])
+
+    view = PaginatorView(pages, author_id=ctx.author.id)
+    # disable prev on page 0
+    for i, b in enumerate(view.children):
+        if isinstance(b, discord.ui.Button) and b.label.startswith("◀"):
+            b.disabled = True
+    await ctx.send(embed=pages[0], view=view)
 
 ############################################################## USER COMMANDS ################################################################
 @bot.command()
