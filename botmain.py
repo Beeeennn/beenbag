@@ -1890,7 +1890,7 @@ async def spawn_loop_for_guild(guild_id: int):
                 await spawn_once_in_channel(chan)
 
             # sleep AFTER the attempt
-            await asyncio.sleep(random.randint(60, 120))
+            await asyncio.sleep(random.randint(120, 480))
 
         except asyncio.CancelledError:
             break
