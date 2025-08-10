@@ -1395,8 +1395,8 @@ async def chop_error(ctx, error):
 @game_command()
 @bot.command(name="stronghold")
 async def stronghold(ctx):
-    await ctx.send(f"This feature is currently under development, please try again later (after 12th Aug).:fosh:")
-    #await cc.c_stronghold(ctx)
+    #await ctx.send(f"This feature is currently under development, please try again later (after 12th Aug).:fosh:")
+    await cc.c_stronghold(ctx)
 
 @bot.command(name="mine")
 @commands.cooldown(1, 120, commands.BucketType.user)
