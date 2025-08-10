@@ -87,6 +87,7 @@ RARITIES ={
     4:{"colour":"purple","name":"epic","wheat":50,"emeralds":5,"stay":90},
     5:{"colour":"red","name":"legendary","wheat":80,"emeralds":10,"stay":60}
 }
+NOT_SPAWN_MOBS = ["Sea Pickle", "Squid", "Glow Squid", "Cod", "Salmon", "Tropical Fish", "Pufferfish", "Copper Golem", "Breeze"]
 WHEAT_DROP ={None: 2,
             "wood":   3,
             "stone":   4,

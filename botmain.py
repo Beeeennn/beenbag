@@ -533,6 +533,40 @@ def _bot_can_react(ctx, ch) -> bool:
     # For threads, Add Reactions is still the key
     return perms.view_channel and perms.add_reactions
 
+@bot.command(name="enablewelcome", aliases=["welcomeon"])
+@commands.has_permissions(administrator=True)
+async def enablewelcome(ctx):
+    if ctx.guild is None:
+        return await ctx.send("❌ This command can only be used in a server.")
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO guild_settings (guild_id, welcome_enabled)
+            VALUES ($1, TRUE)
+            ON CONFLICT (guild_id) DO UPDATE SET welcome_enabled = EXCLUDED.welcome_enabled
+            """,
+            ctx.guild.id
+        )
+    await ctx.send("✅ Welcome messages **enabled**. New members will be greeted in the announce channel (if set).")
+
+
+@bot.command(name="disablewelcome", aliases=["welcomeoff"])
+@commands.has_permissions(administrator=True)
+async def disablewelcome(ctx):
+    if ctx.guild is None:
+        return await ctx.send("❌ This command can only be used in a server.")
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO guild_settings (guild_id, welcome_enabled)
+            VALUES ($1, FALSE)
+            ON CONFLICT (guild_id) DO UPDATE SET welcome_enabled = EXCLUDED.welcome_enabled
+            """,
+            ctx.guild.id
+        )
+    await ctx.send("✅ Welcome messages **disabled** for this server.")
+
+
 
 @bot.command(name="setupbot", aliases=["setup"])
 @commands.has_permissions(administrator=True)
@@ -1064,6 +1098,127 @@ async def on_guild_join(guild):
 @bot.event
 async def on_guild_remove(guild):
     stop_guild_spawn_task(guild.id)
+@bot.event
+async def on_member_join(member: discord.Member):
+    guild = member.guild
+
+    # read setting (default TRUE) + preferred channel
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT COALESCE(welcome_enabled, TRUE) AS welcome_enabled,
+                   announce_channel_id
+            FROM guild_settings
+            WHERE guild_id = $1
+            """,
+            guild.id
+        )
+
+    if row and not row["welcome_enabled"]:
+        return  # welcomes disabled
+
+    # pick channel: announce_channel_id → system_channel → first text channel we can speak in
+    channel = None
+    if row and row["announce_channel_id"]:
+        channel = guild.get_channel(row["announce_channel_id"])
+        if channel and not channel.permissions_for(guild.me).send_messages:
+            channel = None
+    if channel is None:
+        ch = guild.system_channel
+        if ch and ch.permissions_for(guild.me).send_messages:
+            channel = ch
+    if channel is None:
+        for ch in guild.text_channels:
+            perms = ch.permissions_for(guild.me)
+            if perms.view_channel and perms.send_messages:
+                channel = ch
+                break
+    if channel is None:
+        return  # nowhere safe to speak
+
+    # compose a simple welcome
+    try:
+        pref = get_cached_prefix(guild.id) if "get_cached_prefix" in globals() else "bc!"
+        await channel.send(
+            f"👋 Welcome {member.mention}! Glad to have you in **{guild.name}**.\n"
+            f"Try `{pref}help` to see what I can do."
+        )
+    except Exception:
+        logging.exception("Failed to send welcome message")
+
+async def _find_writable_channel(guild: discord.Guild) -> discord.TextChannel | None:
+    me = guild.me
+    # 1) Prefer the system channel if we can talk there
+    if guild.system_channel:
+        p = guild.system_channel.permissions_for(me)
+        if p.view_channel and p.send_messages:
+            return guild.system_channel
+
+    # 2) Otherwise the first text channel we can speak in (by position)
+    for ch in sorted(guild.text_channels, key=lambda c: c.position):
+        p = ch.permissions_for(me)
+        if p.view_channel and p.send_messages:
+            return ch
+
+    return None
+
+@bot.event
+async def on_guild_join(guild: discord.Guild):
+    # Seed default prefix in cache so messages show the right thing
+    DEFAULT_PREFIX = "bc!"
+    _prefix_cache[guild.id] = DEFAULT_PREFIX  # until setup/setprefix
+    start_guild_spawn_task(guild.id)
+
+    # Create a default row so welcome_enabled etc. have defaults (optional but nice)
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO guild_settings (guild_id, command_prefix)
+                VALUES ($1, $2)
+                ON CONFLICT (guild_id) DO NOTHING
+                """,
+                guild.id, DEFAULT_PREFIX
+            )
+    except Exception:
+        logging.exception("Failed inserting default guild_settings row on join")
+
+    # Pick a channel to speak in
+    channel = await _find_writable_channel(guild)
+    prefix  = _prefix_cache.get(guild.id, DEFAULT_PREFIX)
+
+    intro = discord.Embed(
+        title=f"Thanks for adding {bot.user.name}! 🎉",
+        description=(
+            f"My prefix here is **`{prefix}`** (you can also mention me).\n\n"
+            f"Use `{prefix}setup` to setup some server info (spawn, logs, links, game channels, prefix)\n"
+            f"Join the discord at https://discord.gg/St4Asc5hJP to give suggestions, report bugs and ask any questions\n"
+            f""
+            f"Try `{prefix}help` to see everything I can do."
+        ),
+        color=discord.Color.green()
+    )
+
+    sent = False
+    if channel:
+        try:
+            await channel.send(embed=intro)
+            sent = True
+        except Exception:
+            logging.exception("Intro send failed in chosen channel")
+
+    # Fallback: DM the guild owner if we couldn't post anywhere
+    if not sent:
+        try:
+            owner = guild.owner or await guild.fetch_member(guild.owner_id)
+            if owner:
+                await owner.send(
+                    f"Hi! Thanks for inviting **{bot.user.name}** to **{guild.name}**.\n"
+                    f"I couldn’t post an intro in the server, likely due to channel permissions.\n\n"
+                    f"Use `{prefix}setup` in a channel where I can speak to configure me."
+                )
+        except Exception:
+            logging.exception("Also failed to DM owner after join")
 
 ############################################################## USER COMMANDS ################################################################
 @bot.command()
@@ -1078,6 +1233,41 @@ async def linkyt(ctx, *, channel_name: str):
 @bot.command(name="yt")
 async def yt(ctx, *, who = None):
     await cc.c_yt(ctx, who)
+
+@bot.command(name="credits", aliases=["license", "licence", "about"])
+async def credits(ctx):
+    pref = get_cached_prefix(ctx.guild.id if ctx.guild else None)
+    e = discord.Embed(
+        title="Attribution & Licensing",
+        description="This bot uses community media with the licenses below.",
+        color=discord.Color.blurple()
+    )
+    e.add_field(
+        name="Minecraft Wiki (Fandom) media",
+        value=(
+            "Some images are from **Minecraft Wiki (Fandom)** and are used under "
+            "**CC BY-NC-SA 3.0** *for content the wiki may lawfully license*. "
+            "Individual file pages can specify different terms (including Mojang textures/screenshots or fair use)."
+        ),
+        inline=False
+    )
+    e.add_field(
+        name="Trademark / Affiliation",
+        value=(
+            "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT."
+        ),
+        inline=False
+    )
+    e.add_field(
+        name="Learn more",
+        value=(
+            "• Minecraft Wiki (Fandom) copyright page (CC BY-NC-SA 3.0 for licensable content).\n"
+            "• Minecraft Usage Guidelines (required disclaimer)."
+        ),
+        inline=False
+    )
+    e.set_footer(text=f"Need per-file sources? Try {pref}source <mob>")
+    await ctx.send(embed=e)
 
 # --- helpers to mark game commands ---
 def game_command():
@@ -1372,15 +1562,13 @@ async def get_spawn_channels_for_guild(guild_id: int):
 
 async def spawn_once_in_channel(chan):
     # ---- your existing spawn body (trimmed): choose mob, load image, animate, insert into DB, schedule expiry ----
-    mob_names = list(MOBS.keys())
+    mob_names_all = list(MOBS.keys())
+    mob_names = [m for m in mob_names_all if m not in NOT_SPAWN_MOBS]
     rarities  = [MOBS[name]["rarity"] for name in mob_names]
     max_r     = max(rarities)
     weights   = [(2 ** (max_r + 1 - r)) for r in rarities]
 
     mob = random.choices(mob_names, weights=weights, k=1)[0]
-    if mob == "Sea Pickle":
-        mob = "Cod"
-
     mob_path = f"assets/mobs/{mob}"
     try:
         if os.path.isdir(mob_path):
