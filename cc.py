@@ -1248,20 +1248,20 @@ async def c_barn(ctx, who: str = None):
         )
         size = size_row["barn_size"] if size_row else 5
 
-    # 2) Organize by gold flag → rarity → list of (mob, count)
-    data = {True: {}, False: {}}
-    for r in rows:
-        g    = r["is_golden"]
-        name = r["mob_name"]
-        cnt  = r["count"]
-        rar  = MOBS[name]["rarity"]
-        data[g].setdefault(rar, []).append((name, cnt))
+        # 2) Organize by gold flag → rarity → list of (mob, count)
+        data = {True: {}, False: {}}
+        for r in rows:
+            g    = r["is_golden"]
+            name = r["mob_name"]
+            cnt  = r["count"]
+            rar  = MOBS[name]["rarity"]
+            data[g].setdefault(rar, []).append((name, cnt))
 
-    # 3) Build embed
-    occ = await conn.fetchval(
-        "SELECT COALESCE(SUM(count),0) FROM barn WHERE user_id=$1 AND guild_id=$2",
-        user_id, guild_id
-    )
+        # 3) Build embed
+        occ = await conn.fetchval(
+            "SELECT COALESCE(SUM(count),0) FROM barn WHERE user_id=$1 AND guild_id=$2",
+            user_id, guild_id
+        )
     embed = discord.Embed(
         title=f"{member.display_name}'s Barn ({occ}/{size} slots)",
         color=discord.Color.green()
