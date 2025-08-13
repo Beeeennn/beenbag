@@ -15,7 +15,7 @@ from collections import defaultdict, deque
 from constants import *
 import utils as u
 import cc
-import aiohttp
+import aiohttp, http
 from stronghold import PathButtons
 import re
 chat_xp_cd = commands.CooldownMapping.from_cooldown(
@@ -173,6 +173,10 @@ async def _cleanup_http_session(bot: commands.Bot):
         session = getattr(getattr(bot, "http", None), "_HTTPClient__session", None)
         if session and not session.closed:
             await session.close()
+        try:
+            http._HTTPClient__session = None
+        except Exception:
+            pass
     except Exception:
         pass
 
