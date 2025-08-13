@@ -379,6 +379,8 @@ async def c_craft(ctx, args):
         """, user_id, guild_id, tool, tier, uses)
 
     await ctx.send(f"🔨 You crafted a **{tier.title()} {tool.replace('_',' ').title()}** with {uses} uses!")
+def _norm(s: str) -> str:
+    return " ".join(s.lower().split())
 async def c_shop(ctx):
     """List all items you can buy in the shop."""
     async with db_pool.acquire() as conn:

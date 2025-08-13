@@ -105,6 +105,8 @@ DROP_TABLES = {
     "diamond": {"cobblestone": {"chance" :10, "min":6, "max":10}, "iron": {"chance" :10, "min":3, "max":6}, "gold": {"chance" :35, "min":1, "max":3}, "diamond": {"chance" :45, "min":1, "max":2}},
 }
 
+BLOCKED_SHOP_ITEMS = {"exp bottle", "xp bottle", "experience bottle", "exp bottles", "xp bottles"}
+
 SWORDS = {
     None:0,
     "wood":0,

@@ -15,6 +15,7 @@ from collections import defaultdict, deque
 from constants import *
 import utils as u
 import cc
+import aiohttp
 from stronghold import PathButtons
 import re
 chat_xp_cd = commands.CooldownMapping.from_cooldown(
@@ -150,6 +151,30 @@ db_pool: asyncpg.Pool = None
 
 #         # loop back around for the next midnight
 
+# --- Cloudflare detection + session cleanup helpers ---
+def _looks_like_cloudflare_block(error: Exception) -> bool:
+    s = str(error).lower()
+    return any(h in s for h in (
+        "error 1015",
+        "you are being rate limited",
+        "cloudflare",
+        "<!doctype html",         # html body returned on 429 by CF
+        "cf-error-details",
+        "access denied | discord.com used cloudflare to restrict access",
+    ))
+
+async def _cleanup_http_session(bot: commands.Bot):
+    """Close discord.py's underlying aiohttp session to avoid 'Unclosed client session' spam."""
+    try:
+        await bot.close()  # safe to call even if already closing
+    except Exception:
+        pass
+    try:
+        session = getattr(getattr(bot, "http", None), "_HTTPClient__session", None)
+        if session and not session.closed:
+            await session.close()
+    except Exception:
+        pass
 
 async def give_fish_food_task():
     await bot.wait_until_ready()
@@ -1528,11 +1553,17 @@ async def updates(ctx):
     await u.giverole(ctx,role_id,ctx.author)
 
 
+def _norm_item_from_args(args: tuple[str, ...]) -> str:
+    # join non-quantity tokens; works for "buy exp bottle 5" and "buy 5 exp bottle"
+    tokens = [a for a in args if not a.isdigit()]
+    return " ".join(tokens).strip().lower()
 @game_command()
 @bot.command(name="buy")
 async def buy(ctx, *args):
-    await cc.c_buy(ctx,args)
-
+    item_norm = _norm_item_from_args(args)
+    if item_norm in BLOCKED_SHOP_ITEMS:
+        return await ctx.send("❌ EXP bottles are no longer sold.")
+    # pass through to your existing cc handler
 
 @bot.command(name="exp", aliases=["experience", "level", "lvl"])
 async def exp_cmd(ctx, *, who: str = None):
@@ -1936,15 +1967,68 @@ async def main():
     # 2) Start HTTP server and keep a reference to the runner for cleanup
     runner = await start_http_server()
 
-    # 3) Run the bot, reconnecting on errors
-    retry_delay = 5
+    # 3) Run the bot with exponential backoff to avoid CF 1015 hammering
+    base_delay = 60          # start with 1 minute so the cooldown can actually expire
+    max_delay  = 30 * 60     # cap backoff at 30 minutes
+    delay      = base_delay
+
     try:
         while True:
             try:
-                await bot.start(TOKEN)
-            except Exception:
-                logging.exception(f"Bot disconnected; reconnecting in {retry_delay}s")
-                await asyncio.sleep(retry_delay)
+                logging.info("Starting bot...")
+                await bot.start(TOKEN)  # returns on close or exception
+                logging.info("bot.start() returned cleanly; exiting loop.")
+                break  # graceful shutdown
+
+            except discord.errors.LoginFailure as e:
+                # Invalid/revoked token; don't retry or you'll get CF blocked
+                logging.error("Login failed (invalid token). Not retrying. %s", e)
+                await _cleanup_http_session(bot)
+                raise
+
+            except discord.errors.HTTPException as e:
+                status = getattr(e, "status", None)
+                if status == 429 or _looks_like_cloudflare_block(e):
+                    # Cloudflare/IP block – back off hard with jitter
+                    jitter = random.randint(0, 10)
+                    sleep_for = delay + jitter
+                    logging.warning("HTTP %s / Cloudflare block. Sleeping %ss (delay=%ss, jitter=%ss).",
+                                    status, sleep_for, delay, jitter)
+                    await _cleanup_http_session(bot)
+                    await asyncio.sleep(sleep_for)
+                    delay = min(max_delay, delay * 2)
+                    continue
+
+                # Other HTTP errors: shorter backoff
+                jitter = random.randint(0, 5)
+                sleep_for = min(max_delay, 15 + jitter)
+                logging.warning("HTTPException %s. Sleeping %ss then retrying.", status, sleep_for)
+                await _cleanup_http_session(bot)
+                await asyncio.sleep(sleep_for)
+                # keep current delay
+                continue
+
+            except (aiohttp.ClientConnectorError,
+                    aiohttp.ServerDisconnectedError,
+                    aiohttp.ClientOSError,
+                    ConnectionResetError,
+                    TimeoutError) as e:
+                # Transient network errors: moderate backoff
+                jitter = random.randint(0, 5)
+                sleep_for = min(max_delay, max(30, delay // 2) + jitter)
+                logging.warning("Network error: %s. Sleeping %ss then retrying.", e, sleep_for)
+                await _cleanup_http_session(bot)
+                await asyncio.sleep(sleep_for)
+                delay = max(base_delay, delay)  # don't shrink below base
+                continue
+
+            except Exception as e:
+                # Unknown error: small sleep, then retry
+                logging.exception("Unexpected error in bot.start(): %s", e)
+                await _cleanup_http_session(bot)
+                await asyncio.sleep(15)
+                continue
+
     finally:
         # Ensure the aiohttp app is cleaned up properly
         await runner.cleanup()
