@@ -1233,9 +1233,16 @@ async def c_barn(ctx, who: str = None):
             """,
             user_id,guild_id
         )
+        if not rows:
+            return await ctx.send(embed=discord.Embed(
+                title=f"{member.display_name}'s Barn (0/{size} slots)",
+                description="No mobs yet. Go catch some!",
+                color=discord.Color.green()
+            ))
+
         # fetch barn size & next upgrade cost if you still want those
         size_row = await conn.fetchrow(
-            "SELECT barn_size FROM new_players WHERE user_id = $1 AND guild_id", user_id, guild_id
+            "SELECT barn_size FROM new_players WHERE user_id = $1 AND guild_id = $2", user_id, guild_id
         )
         size = size_row["barn_size"] if size_row else 5
 
@@ -1249,8 +1256,12 @@ async def c_barn(ctx, who: str = None):
         data[g].setdefault(rar, []).append((name, cnt))
 
     # 3) Build embed
+    occ = await conn.fetchval(
+        "SELECT COALESCE(SUM(count),0) FROM barn WHERE user_id=$1 AND guild_id=$2",
+        user_id, guild_id
+    )
     embed = discord.Embed(
-        title=f"{member.display_name}'s Barn ({size} slots)",
+        title=f"{member.display_name}'s Barn ({occ}/{size} slots)",
         color=discord.Color.green()
     )
     embed.set_footer(text="Use !upbarn to expand your barn.")
